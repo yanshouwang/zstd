@@ -1,0 +1,41 @@
+name: zstd
+description: 'A new Flutter plugin project.'
+version: 0.0.1
+homepage:
+
+environment:
+  sdk: ^3.7.2
+  flutter: '>=3.3.0'
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  zstd_api: ^0.0.1
+  ffi: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  ffigen: ^19.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.zeekr.zstd
+        pluginClass: ZstdPlugin
+        dartPluginClass: ZstdPlugin
+      ios:
+        pluginClass: ZstdPlugin
+        dartPluginClass: ZstdPlugin
+      linux:
+        pluginClass: ZstdPlugin
+        dartPluginClass: ZstdPlugin
+      macos:
+        pluginClass: ZstdPlugin
+        dartPluginClass: ZstdPlugin
+      windows:
+        pluginClass: ZstdPluginCApi
+        dartPluginClass: ZstdPlugin
