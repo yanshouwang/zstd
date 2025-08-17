@@ -48,28 +48,57 @@ final class ZstdImpl extends ZstdApi {
       ZstdDecompressFilterImpl();
 }
 
-abstract base class ZstdFilterImpl implements ZstdFilterApi {
+abstract base class ZstdFilterImpl implements ZstdFilterApi, Finalizable {
+  static final _finalizer = NativeFinalizer(malloc.nativeFree);
+
   final Pointer<ZSTD_outBuffer> output;
   final Pointer<ZSTD_inBuffer> input;
-  bool initialized;
 
   ZstdFilterImpl()
-    : output =
-          malloc<ZSTD_outBuffer>()..ref.size = _bindings.ZSTD_CStreamOutSize(),
-      input = malloc<ZSTD_inBuffer>(),
-      initialized = false;
+    : output = malloc<ZSTD_outBuffer>(),
+      input = malloc<ZSTD_inBuffer>() {
+    _finalizer.attach(this, output.cast<Void>());
+    _finalizer.attach(this, input.cast<Void>());
+  }
+
+  void freeInput() {
+    malloc.free(input.ref.src);
+    input.ref.src = nullptr;
+    input.ref.size = 0;
+    input.ref.pos = 0;
+  }
+
+  void resetOutput() {
+    output.ref.pos = 0;
+  }
 }
 
 final class ZstdCompressFilterImpl extends ZstdFilterImpl
     implements ZstdCompressFilterApi {
-  List<int> currentBuffer;
+  static final _freeCCtx =
+      _dylib
+          .lookup<NativeFunction<Size Function(Pointer<ZSTD_CCtx>)>>(
+            'ZSTD_freeCCtx',
+          )
+          .cast<NativeFinalizerFunction>();
+  static final _cctxFinalizer = NativeFinalizer(_freeCCtx);
+
   Pointer<ZSTD_CStream> cctx;
 
   ZstdCompressFilterImpl()
-    : cctx = _bindings.ZSTD_createCCtx().checkNotNull('cctx');
+    : cctx = _bindings.ZSTD_createCCtx().checkNotNull('cctx') {
+    _cctxFinalizer.attach(this, cctx.cast<Void>());
+  }
 
   @override
   void init(int level, List<int>? dictionary) {
+    final outSize = _bindings.ZSTD_CStreamOutSize().checkError();
+    output.ref.dst = malloc<Uint8>(outSize).cast<Void>();
+    output.ref.size = outSize;
+    output.ref.pos = 0;
+    input.ref.src = nullptr;
+    input.ref.size = 0;
+    input.ref.pos = 0;
     _bindings.ZSTD_CCtx_reset(
       cctx,
       ZSTD_ResetDirective.ZSTD_reset_session_only,
@@ -85,25 +114,59 @@ final class ZstdCompressFilterImpl extends ZstdFilterImpl
 
   @override
   void process(List<int> data, int start, int end) {
-    final chunkLength = end - start;
-    int length;
-    if (currentBuffer != null)
+    final chunk = data.sublist(start, end);
+    if (input.ref.src.isNotNull) {
       throw StateError('Call to Process while still processing data');
-    currentBuffer = data;
+    }
+    final src = malloc<Uint8>(chunk.length);
+    src.asTypedList(chunk.length).setAll(0, chunk);
+    input.ref.src = src.cast<Void>();
+    input.ref.size = chunk.length;
+    input.ref.pos = 0;
   }
 
   @override
   List<int>? processd(bool flush, bool end) {
-    _bindings.ZSTD_compressStream2(cctx, output, input, endOp).checkError();
+    try {
+      final endOp =
+          end
+              ? ZSTD_EndDirective.ZSTD_e_end
+              : flush
+              ? ZSTD_EndDirective.ZSTD_e_flush
+              : ZSTD_EndDirective.ZSTD_e_continue;
+      _bindings.ZSTD_compressStream2(cctx, output, input, endOp).checkError();
+    } catch (e) {
+      resetOutput();
+      freeInput();
+      rethrow;
+    }
+    if (output.ref.pos == 0) {
+      freeInput();
+      return null;
+    } else {
+      final value = output.ref.dst.cast<Uint8>().asTypedList(output.ref.pos);
+      resetOutput();
+      return value;
+    }
   }
 }
 
 final class ZstdDecompressFilterImpl extends ZstdFilterImpl
     implements ZstdDecompressFilterApi {
+  static final _freeDCtx =
+      _dylib
+          .lookup<NativeFunction<Size Function(Pointer<ZSTD_DCtx>)>>(
+            'ZSTD_freeDCtx',
+          )
+          .cast<NativeFinalizerFunction>();
+  static final _dctxFinalizer = NativeFinalizer(_freeDCtx);
+
   final Pointer<ZSTD_DCtx> dctx;
 
   ZstdDecompressFilterImpl()
-    : dctx = _bindings.ZSTD_createDCtx().checkNotNull('dctx');
+    : dctx = _bindings.ZSTD_createDCtx().checkNotNull('dctx') {
+    _dctxFinalizer.attach(this, dctx.cast<Void>());
+  }
 
   @override
   void init(List<int>? dictionary) {
@@ -129,6 +192,7 @@ final class ZstdDecompressFilterImpl extends ZstdFilterImpl
 
 extension _PointerX<T extends NativeType> on Pointer<T> {
   bool get isNull => this == nullptr;
+  bool get isNotNull => !isNull;
 
   Pointer<T> checkNotNull([String? name]) =>
       isNull ? throw ArgumentError.notNull(name) : this;
