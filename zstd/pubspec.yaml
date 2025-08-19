@@ -1,5 +1,5 @@
 name: zstd
-description: 'A new Flutter plugin project.'
+description: 'A new Flutter FFI plugin project.'
 version: 0.0.1
 homepage:
 
@@ -24,18 +24,17 @@ flutter:
   plugin:
     platforms:
       android:
-        package: dev.zeekr.zstd
-        pluginClass: ZstdPlugin
+        ffiPlugin: true
         dartPluginClass: ZstdPlugin
       ios:
-        pluginClass: ZstdPlugin
+        ffiPlugin: true
         dartPluginClass: ZstdPlugin
       linux:
-        pluginClass: ZstdPlugin
+        ffiPlugin: true
         dartPluginClass: ZstdPlugin
       macos:
-        pluginClass: ZstdPlugin
+        ffiPlugin: true
         dartPluginClass: ZstdPlugin
       windows:
-        pluginClass: ZstdPluginCApi
+        ffiPlugin: true
         dartPluginClass: ZstdPlugin

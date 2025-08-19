@@ -41,7 +41,9 @@ final class ZstdImpl extends ZstdApi {
   ZstdImpl() : super.impl();
 
   @override
-  ZstdCompressFilterApi makeZstdCompressFilter() => ZstdCompressFilterImpl();
+  ZstdCompressFilterApi makeZstdCompressFilter() {
+    return ZstdCompressFilterImpl();
+  }
 
   @override
   ZstdDecompressFilterApi makeZstdDecompressFilter() =>
