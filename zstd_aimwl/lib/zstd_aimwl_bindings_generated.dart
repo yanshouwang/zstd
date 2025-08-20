@@ -8,21 +8,21 @@
 // ignore_for_file: type=lint
 import 'dart:ffi' as ffi;
 
-/// Bindings for `src/zstd.h`.
+/// Bindings for `src/zstd_aimwl.h`.
 ///
 /// Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
 ///
-class ZstdBindings {
+class ZstdAimwlBindings {
   /// Holds the symbol lookup function.
   final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
       _lookup;
 
   /// The symbols are looked up in [dynamicLibrary].
-  ZstdBindings(ffi.DynamicLibrary dynamicLibrary)
+  ZstdAimwlBindings(ffi.DynamicLibrary dynamicLibrary)
       : _lookup = dynamicLibrary.lookup;
 
   /// The symbols are looked up with [lookup].
-  ZstdBindings.fromLookup(
+  ZstdAimwlBindings.fromLookup(
       ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
           lookup)
       : _lookup = lookup;
