@@ -338,7 +338,7 @@ final class _ZstdCompressFilter extends _FilterImpl {
   final ZstdCompressFilterApi api;
 
   _ZstdCompressFilter(int level, List<int>? dictionary)
-    : api = ZstdApi.instance.makeZstdCompressFilter() {
+    : api = ZstdApi.instance.newZstdCompressFilter() {
     _init(level, dictionary);
   }
 
@@ -350,7 +350,7 @@ final class _ZstdDecompressFilter extends _FilterImpl {
   final ZstdDecompressFilterApi api;
 
   _ZstdDecompressFilter(List<int>? dictionary)
-    : api = ZstdApi.instance.makeZstdDecompressFilter() {
+    : api = ZstdApi.instance.newZstdDecompressFilter() {
     _init(dictionary);
   }
 

@@ -4,5 +4,6 @@ environment:
   sdk: ^3.7.2
 workspace:
   - zstd_api
+  - zstd_native
   - zstd
   - zstd/example

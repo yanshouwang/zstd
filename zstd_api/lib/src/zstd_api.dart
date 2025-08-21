@@ -28,6 +28,6 @@ abstract base class ZstdApi extends PlatformInterface {
   /// Constructs a ZstdApi.
   ZstdApi.impl() : super(token: _token);
 
-  ZstdCompressFilterApi makeZstdCompressFilter();
-  ZstdDecompressFilterApi makeZstdDecompressFilter();
+  ZstdCompressFilterApi newZstdCompressFilter();
+  ZstdDecompressFilterApi newZstdDecompressFilter();
 }
