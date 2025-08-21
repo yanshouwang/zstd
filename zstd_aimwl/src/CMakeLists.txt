@@ -20,25 +20,3 @@ if (ANDROID)
   # Support Android 15 16k page size
   target_link_options(zstd_aimwl PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
-
-# zstd
-if(WIN32)
-  include(cmake/external_zstd.cmake)
-else()
-  include(cmake/zstd.cmake)
-endif()
-
-# target_link_libraries(
-#     # ${PROJECT_NAME}
-#     zstd_aimwl
-#     PRIVATE
-#     libzstd_shared
-# )
-
-# # On windows and macos this is needed
-# target_include_directories(
-#     # ${PROJECT_NAME}
-#     zstd_aimwl
-#     PRIVATE
-#     ${zstd_SOURCE_DIR}/lib
-# )
