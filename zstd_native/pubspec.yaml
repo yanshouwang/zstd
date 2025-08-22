@@ -1,11 +1,13 @@
 name: zstd_native
-description: "A new Flutter FFI plugin project."
+description: 'A new Flutter FFI plugin project.'
 version: 0.0.1
 homepage:
 
 environment:
   sdk: ^3.7.2
-  flutter: '>=3.3.0'
+  # Flutter versions prior to 3.7 did not support the
+  # sharedDarwinSource option.
+  flutter: '>=3.7.0'
 resolution: workspace
 
 dependencies:
@@ -29,13 +31,15 @@ flutter:
         dartPluginClass: ZstdNativePlugin
       ios:
         ffiPlugin: true
-        dartPluginClass: ZstdNativePlugin
-      linux:
-        ffiPlugin: true
+        sharedDarwinSource: true
         dartPluginClass: ZstdNativePlugin
       macos:
         ffiPlugin: true
+        sharedDarwinSource: true
         dartPluginClass: ZstdNativePlugin
       windows:
+        ffiPlugin: true
+        dartPluginClass: ZstdNativePlugin
+      linux:
         ffiPlugin: true
         dartPluginClass: ZstdNativePlugin

@@ -26,9 +26,9 @@ flutter:
         default_package: zstd_native
       ios:
         default_package: zstd_native
-      linux:
-        default_package: zstd_native
       macos:
         default_package: zstd_native
       windows:
+        default_package: zstd_native
+      linux:
         default_package: zstd_native

@@ -38,7 +38,10 @@ class ZstdError extends Error {
 }
 
 final class ZstdImpl extends ZstdApi {
-  ZstdImpl() : super.impl();
+  ZstdImpl() : super.impl() {
+    final version = _bindings.ZSTD_versionString().toDartString();
+    stdout.writeln('ZSTD_versionString: $version');
+  }
 
   @override
   ZstdCompressFilterApi newZstdCompressFilter() => ZstdCompressFilterImpl();
