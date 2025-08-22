@@ -10,7 +10,7 @@ import 'dart:ffi' as ffi;
 
 /// Bindings for `zstd`.
 ///
-/// Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
+/// Regenerate bindings with `dart run ffigen --config ffigen.zstd.yaml`.
 ///
 class ZstdBindings {
   /// Holds the symbol lookup function.
@@ -25,6 +25,195 @@ class ZstdBindings {
   ZstdBindings.fromLookup(
     ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
   ) : _lookup = lookup;
+
+  /// ! ZDICT_trainFromBuffer():
+  /// Train a dictionary from an array of samples.
+  /// Redirect towards ZDICT_optimizeTrainFromBuffer_fastCover() single-threaded, with d=8, steps=4,
+  /// f=20, and accel=1.
+  /// Samples must be stored concatenated in a single flat buffer `samplesBuffer`,
+  /// supplied with an array of sizes `samplesSizes`, providing the size of each sample, in order.
+  /// The resulting dictionary will be saved into `dictBuffer`.
+  /// @return: size of dictionary stored into `dictBuffer` (<= `dictBufferCapacity`)
+  /// or an error code, which can be tested with ZDICT_isError().
+  /// Note:  Dictionary training will fail if there are not enough samples to construct a
+  /// dictionary, or if most of the samples are too small (< 8 bytes being the lower limit).
+  /// If dictionary training fails, you should use zstd without a dictionary, as the dictionary
+  /// would've been ineffective anyways. If you believe your samples would benefit from a dictionary
+  /// please open an issue with details, and we can look into it.
+  /// Note: ZDICT_trainFromBuffer()'s memory usage is about 6 MB.
+  /// Tips: In general, a reasonable dictionary has a size of ~ 100 KB.
+  /// It's possible to select smaller or larger size, just by specifying `dictBufferCapacity`.
+  /// In general, it's recommended to provide a few thousands samples, though this can vary a lot.
+  /// It's recommended that total size of all samples be about ~x100 times the target size of dictionary.
+  int ZDICT_trainFromBuffer(
+    ffi.Pointer<ffi.Void> dictBuffer,
+    int dictBufferCapacity,
+    ffi.Pointer<ffi.Void> samplesBuffer,
+    ffi.Pointer<ffi.Size> samplesSizes,
+    int nbSamples,
+  ) {
+    return _ZDICT_trainFromBuffer(
+      dictBuffer,
+      dictBufferCapacity,
+      samplesBuffer,
+      samplesSizes,
+      nbSamples,
+    );
+  }
+
+  late final _ZDICT_trainFromBufferPtr = _lookup<
+    ffi.NativeFunction<
+      ffi.Size Function(
+        ffi.Pointer<ffi.Void>,
+        ffi.Size,
+        ffi.Pointer<ffi.Void>,
+        ffi.Pointer<ffi.Size>,
+        ffi.UnsignedInt,
+      )
+    >
+  >('ZDICT_trainFromBuffer');
+  late final _ZDICT_trainFromBuffer =
+      _ZDICT_trainFromBufferPtr.asFunction<
+        int Function(
+          ffi.Pointer<ffi.Void>,
+          int,
+          ffi.Pointer<ffi.Void>,
+          ffi.Pointer<ffi.Size>,
+          int,
+        )
+      >();
+
+  /// ! ZDICT_finalizeDictionary():
+  /// Given a custom content as a basis for dictionary, and a set of samples,
+  /// finalize dictionary by adding headers and statistics according to the zstd
+  /// dictionary format.
+  ///
+  /// Samples must be stored concatenated in a flat buffer `samplesBuffer`,
+  /// supplied with an array of sizes `samplesSizes`, providing the size of each
+  /// sample in order. The samples are used to construct the statistics, so they
+  /// should be representative of what you will compress with this dictionary.
+  ///
+  /// The compression level can be set in `parameters`. You should pass the
+  /// compression level you expect to use in production. The statistics for each
+  /// compression level differ, so tuning the dictionary for the compression level
+  /// can help quite a bit.
+  ///
+  /// You can set an explicit dictionary ID in `parameters`, or allow us to pick
+  /// a random dictionary ID for you, but we can't guarantee no collisions.
+  ///
+  /// The dstDictBuffer and the dictContent may overlap, and the content will be
+  /// appended to the end of the header. If the header + the content doesn't fit in
+  /// maxDictSize the beginning of the content is truncated to make room, since it
+  /// is presumed that the most profitable content is at the end of the dictionary,
+  /// since that is the cheapest to reference.
+  ///
+  /// `maxDictSize` must be >= max(dictContentSize, ZDICT_DICTSIZE_MIN).
+  ///
+  /// @return: size of dictionary stored into `dstDictBuffer` (<= `maxDictSize`),
+  /// or an error code, which can be tested by ZDICT_isError().
+  /// Note: ZDICT_finalizeDictionary() will push notifications into stderr if
+  /// instructed to, using notificationLevel>0.
+  /// NOTE: This function currently may fail in several edge cases including:
+  /// * Not enough samples
+  /// * Samples are uncompressible
+  /// * Samples are all exactly the same
+  int ZDICT_finalizeDictionary(
+    ffi.Pointer<ffi.Void> dstDictBuffer,
+    int maxDictSize,
+    ffi.Pointer<ffi.Void> dictContent,
+    int dictContentSize,
+    ffi.Pointer<ffi.Void> samplesBuffer,
+    ffi.Pointer<ffi.Size> samplesSizes,
+    int nbSamples,
+    ZDICT_params_t parameters,
+  ) {
+    return _ZDICT_finalizeDictionary(
+      dstDictBuffer,
+      maxDictSize,
+      dictContent,
+      dictContentSize,
+      samplesBuffer,
+      samplesSizes,
+      nbSamples,
+      parameters,
+    );
+  }
+
+  late final _ZDICT_finalizeDictionaryPtr = _lookup<
+    ffi.NativeFunction<
+      ffi.Size Function(
+        ffi.Pointer<ffi.Void>,
+        ffi.Size,
+        ffi.Pointer<ffi.Void>,
+        ffi.Size,
+        ffi.Pointer<ffi.Void>,
+        ffi.Pointer<ffi.Size>,
+        ffi.UnsignedInt,
+        ZDICT_params_t,
+      )
+    >
+  >('ZDICT_finalizeDictionary');
+  late final _ZDICT_finalizeDictionary =
+      _ZDICT_finalizeDictionaryPtr.asFunction<
+        int Function(
+          ffi.Pointer<ffi.Void>,
+          int,
+          ffi.Pointer<ffi.Void>,
+          int,
+          ffi.Pointer<ffi.Void>,
+          ffi.Pointer<ffi.Size>,
+          int,
+          ZDICT_params_t,
+        )
+      >();
+
+  /// ======   Helper functions   ======
+  int ZDICT_getDictID(ffi.Pointer<ffi.Void> dictBuffer, int dictSize) {
+    return _ZDICT_getDictID(dictBuffer, dictSize);
+  }
+
+  late final _ZDICT_getDictIDPtr = _lookup<
+    ffi.NativeFunction<
+      ffi.UnsignedInt Function(ffi.Pointer<ffi.Void>, ffi.Size)
+    >
+  >('ZDICT_getDictID');
+  late final _ZDICT_getDictID =
+      _ZDICT_getDictIDPtr.asFunction<
+        int Function(ffi.Pointer<ffi.Void>, int)
+      >();
+
+  int ZDICT_getDictHeaderSize(ffi.Pointer<ffi.Void> dictBuffer, int dictSize) {
+    return _ZDICT_getDictHeaderSize(dictBuffer, dictSize);
+  }
+
+  late final _ZDICT_getDictHeaderSizePtr = _lookup<
+    ffi.NativeFunction<ffi.Size Function(ffi.Pointer<ffi.Void>, ffi.Size)>
+  >('ZDICT_getDictHeaderSize');
+  late final _ZDICT_getDictHeaderSize =
+      _ZDICT_getDictHeaderSizePtr.asFunction<
+        int Function(ffi.Pointer<ffi.Void>, int)
+      >();
+
+  int ZDICT_isError(int errorCode) {
+    return _ZDICT_isError(errorCode);
+  }
+
+  late final _ZDICT_isErrorPtr =
+      _lookup<ffi.NativeFunction<ffi.UnsignedInt Function(ffi.Size)>>(
+        'ZDICT_isError',
+      );
+  late final _ZDICT_isError = _ZDICT_isErrorPtr.asFunction<int Function(int)>();
+
+  ffi.Pointer<ffi.Char> ZDICT_getErrorName(int errorCode) {
+    return _ZDICT_getErrorName(errorCode);
+  }
+
+  late final _ZDICT_getErrorNamePtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function(ffi.Size)>>(
+        'ZDICT_getErrorName',
+      );
+  late final _ZDICT_getErrorName =
+      _ZDICT_getErrorNamePtr.asFunction<ffi.Pointer<ffi.Char> Function(int)>();
 
   ffi.Pointer<ffi.Char> ZSTD_getErrorString(ZSTD_ErrorCode code) {
     return _ZSTD_getErrorString(code.value);
@@ -1540,6 +1729,26 @@ class ZstdBindings {
       _ZSTD_sizeof_DDictPtr.asFunction<int Function(ffi.Pointer<ZSTD_DDict>)>();
 }
 
+final class ZDICT_params_t extends ffi.Struct {
+  /// < optimize for a specific zstd compression level; 0 means default
+  @ffi.Int()
+  external int compressionLevel;
+
+  /// < Write log to stderr; 0 = none (default); 1 = errors; 2 = progression; 3 = details; 4 = debug;
+  @ffi.UnsignedInt()
+  external int notificationLevel;
+
+  /// < force dictID value; 0 means auto mode (32-bits random value)
+  /// NOTE: The zstd format reserves some dictionary IDs for future use.
+  /// You may use them in private settings, but be warned that they
+  /// may be used by zstd in a public dictionary registry in the future.
+  /// These dictionary IDs are:
+  /// - low range  : <= 32767
+  /// - high range : >= (2^31)
+  @ffi.UnsignedInt()
+  external int dictID;
+}
+
 /// -*********************************************
 /// Error codes list
 /// -*********************************************
@@ -2194,11 +2403,11 @@ const int ZSTD_VERSION_MAJOR = 1;
 
 const int ZSTD_VERSION_MINOR = 5;
 
-const int ZSTD_VERSION_RELEASE = 8;
+const int ZSTD_VERSION_RELEASE = 7;
 
-const int ZSTD_VERSION_NUMBER = 10508;
+const int ZSTD_VERSION_NUMBER = 10507;
 
-const String ZSTD_VERSION_STRING = '1.5.8';
+const String ZSTD_VERSION_STRING = '1.5.7';
 
 const int ZSTD_CLEVEL_DEFAULT = 3;
 

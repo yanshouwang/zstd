@@ -8,18 +8,6 @@ import 'package:zstd_api/zstd_api.dart';
 ///
 /// See http://facebook.github.io/zstd/doc/api_manual_latest.html for more documentation.
 abstract final class ZstdOption {
-  /// Minimal value for [ZstdCodec.windowBits], [ZstdEncoder.windowBits]
-  /// and [ZstdDecoder.windowBits].
-  static const int minWindowBits = 8;
-
-  /// Maximal value for [ZstdCodec.windowBits], [ZstdEncoder.windowBits]
-  /// and [ZstdDecoder.windowBits].
-  static const int maxWindowBits = 15;
-
-  /// Default value for [ZstdCodec.windowBits], [ZstdEncoder.windowBits]
-  /// and [ZstdDecoder.windowBits].
-  static const int defaultWindowBits = 15;
-
   /// Minimal value for [ZstdCodec.level] and [ZstdEncoder.level].
   static const int minLevel = -(1 << 17);
 
@@ -28,31 +16,6 @@ abstract final class ZstdOption {
 
   /// Default value for [ZstdCodec.level] and [ZstdEncoder.level].
   static const int defaultLevel = 3;
-
-  /// Minimal value for [ZstdCodec.memLevel] and [ZstdEncoder.memLevel].
-  static const int minMemLevel = 1;
-
-  /// Maximal value for [ZstdCodec.memLevel] and [ZstdEncoder.memLevel].
-  static const int maxMemLevel = 9;
-
-  /// Default value for [ZstdCodec.memLevel] and [ZstdEncoder.memLevel].
-  static const int defaultMemLevel = 8;
-
-  /// Recommended strategy for data produced by a filter (or predictor)
-  static const int strategyFiltered = 1;
-
-  /// Use this strategy to force Huffman encoding only (no string match)
-  static const int strategyHuffmanOnly = 2;
-
-  /// Use this strategy to limit match distances to one (run-length encoding)
-  static const int strategyRle = 3;
-
-  /// This strategy prevents the use of dynamic Huffman codes, allowing for a
-  /// simpler decoder
-  static const int strategyFixed = 4;
-
-  /// Recommended strategy for normal data
-  static const int strategyDefault = 0;
 }
 
 /// An instance of the default implementation of the [ZstdCodec].
