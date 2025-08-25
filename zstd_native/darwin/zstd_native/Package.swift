@@ -16,13 +16,14 @@ let package = Package(
         .library(name: "zstd-native", type: .dynamic, targets: ["zstd_native"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/yanshouwang/facebook-zstd.git", branch: "darwin")
+        // .package(url: "https://github.com/facebook/zstd.git", branch: "v1.5.7")
+        .package(url: "https://gitee.com/yanshouwang/zstd.git", branch: "darwin-v1.5.7")
     ],
     targets: [
         .target(
             name: "zstd_native",
             dependencies: [
-                .product(name: "zstd", package: "facebook-zstd")
+                .product(name: "zstd", package: "zstd")
             ],
             resources: [
                 // TODO: If your plugin requires a privacy manifest

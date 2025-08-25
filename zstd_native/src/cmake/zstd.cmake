@@ -1,5 +1,5 @@
 # set(GIT_REPOSITORY "https://github.com/facebook/zstd.git")
-set(GIT_REPOSITORY "https://gitee.com/mirrors/facebook-zstd.git")
+set(GIT_REPOSITORY "https://gitee.com/yanshouwang/zstd.git")
 set(GIT_TAG "v1.5.7")
 set(SOURCE_SUBDIR "build/cmake")
 
