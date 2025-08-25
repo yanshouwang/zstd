@@ -23,10 +23,12 @@ A new Flutter FFI plugin project.
 
   s.ios.deployment_target = '12.0'
   s.ios.dependency 'Flutter'
+  s.ios.vendored_frameworks = 'zstd_native/Frameworks/ios/*.framework'
   # Flutter.framework does not contain a i386 slice.
   s.ios.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
 
   s.osx.deployment_target = '10.11'
   s.osx.dependency 'FlutterMacOS'
+  s.osx.vendored_frameworks = 'zstd_native/Frameworks/osx/*.framework'
   s.osx.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
 end
