@@ -1,7 +1,10 @@
 name: zstd_native
-description: 'A new Flutter FFI plugin project.'
-version: 0.0.1
-homepage:
+description: 'Native implementation of the zstd plugin.'
+version: 0.0.1-dev.0
+repository: https://github.com/yanshouwang/zstd
+issue_tracker: https://github.com/yanshouwang/zstd/issues
+topics:
+  - zstd
 
 environment:
   sdk: ^3.7.2
@@ -13,7 +16,7 @@ resolution: workspace
 dependencies:
   flutter:
     sdk: flutter
-  zstd_api: ^0.0.1
+  zstd_api: ^0.0.1-dev.0
   ffi: ^2.1.4
 
 dev_dependencies:

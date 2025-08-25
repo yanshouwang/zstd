@@ -1,7 +1,13 @@
 name: zstd
-description: 'A new Flutter plugin project.'
-version: 0.0.1
-homepage:
+description: >-
+  __Zstandard__, or `zstd` as short version, is a fast lossless compression algorithm,
+  targeting real-time compression scenarios at zlib-level and better compression ratios.
+  It's backed by a very fast entropy stage, provided by [Huff0 and FSE library](https://github.com/Cyan4973/FiniteStateEntropy).
+version: 0.0.1-dev.0
+repository: https://github.com/yanshouwang/zstd
+issue_tracker: https://github.com/yanshouwang/zstd/issues
+topics:
+  - zstd
 
 environment:
   sdk: ^3.7.2
@@ -11,8 +17,8 @@ resolution: workspace
 dependencies:
   flutter:
     sdk: flutter
-  zstd_api: ^0.0.1
-  zstd_native: ^0.0.1
+  zstd_api: ^0.0.1-dev.0
+  zstd_native: ^0.0.1-dev.0
 
 dev_dependencies:
   flutter_test:
