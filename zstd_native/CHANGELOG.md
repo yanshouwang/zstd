@@ -1,3 +1,5 @@
-## 0.0.1
+## 0.0.1-dev.0
 
-* TODO: Describe initial release.
+* Add ZstdImpl.
+* Add ZstdCompressFilterImpl.
+* Add ZstdDecompressFilterImpl.

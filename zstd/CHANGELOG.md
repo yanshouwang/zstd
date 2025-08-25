@@ -1,3 +1,6 @@
-## 0.0.1
+## 0.0.1-dev.0
 
-* TODO: Describe initial release.
+* Add ZstdOption.
+* Add ZstdCodec.
+* Add ZstdEncoder.
+* Add ZstdDecoder.
