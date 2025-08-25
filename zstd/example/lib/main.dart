@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:developer';
 
 import 'package:flutter/cupertino.dart';
@@ -27,12 +28,16 @@ class HomeView extends StatelessWidget {
         child: CupertinoButton(
           child: Text('ZSTD'),
           onPressed: () {
-            final value = List.generate(1024, (i) => 0xff);
-            final encoded = zstd.encode(value);
-            final decoded = zstd.decode(encoded);
-            log('value: ${value.length}');
-            log('encoded: ${encoded.length}');
-            log('decoded: ${decoded.length}');
+            final input = utf8.encode(
+              'Hello, zstd! Hello, zstd! Hello, zstd! Hello, zstd! Hello, zstd!',
+            );
+            final compressed = zstd.encode(input);
+            final decompressed = zstd.decode(compressed);
+            final output = utf8.decode(decompressed);
+            debugPrint('input: $input');
+            debugPrint('compressed: $compressed');
+            debugPrint('decompressed: $decompressed');
+            debugPrint(output);
           },
         ),
       ),
