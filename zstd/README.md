@@ -34,8 +34,9 @@ import 'package:zstd/zstd.dart';
 Compress and decompress data:
 
 ```dart
-final input = utf8.encode('Hello, zstd!');
-final compressed = zstd.encode(input);
+final input = 'Hello, zstd!';
+final value = utf8.encode('Hello, zstd!');
+final compressed = zstd.encode(value);
 final decompressed = zstd.decode(compressed);
 final output = utf8.decode(decompressed);
 debugPrint(output); // Hello, zstd!

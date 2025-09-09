@@ -7,13 +7,13 @@ description: |
 output: 'lib/src/zstd_bindings.g.dart'
 headers:
   entry-points:
-    - 'src/include/zdict.h'
-    - 'src/include/zstd_errors.h'
-    - 'src/include/zstd.h'
+    - 'src/include/zstd/zdict.h'
+    - 'src/include/zstd/zstd_errors.h'
+    - 'src/include/zstd/zstd.h'
   include-directives:
-    - 'src/include/zdict.h'
-    - 'src/include/zstd_errors.h'
-    - 'src/include/zstd.h'
+    - 'src/include/zstd/zdict.h'
+    - 'src/include/zstd/zstd_errors.h'
+    - 'src/include/zstd/zstd.h'
 preamble: |
   // ignore_for_file: always_specify_types
   // ignore_for_file: camel_case_types

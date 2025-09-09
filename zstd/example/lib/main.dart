@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer';
 
 import 'package:flutter/cupertino.dart';
 
@@ -27,16 +28,16 @@ class HomeView extends StatelessWidget {
         child: CupertinoButton(
           child: Text('ZSTD'),
           onPressed: () {
-            final input = utf8.encode(
-              'Hello, zstd! Hello, zstd! Hello, zstd! Hello, zstd! Hello, zstd!',
-            );
-            final compressed = zstd.encode(input);
+            final input =
+                "Zstandard, or zstd as short version, is a fast lossless compression algorithm, targeting real-time compression scenarios at zlib-level and better compression ratios. It's backed by a very fast entropy stage, provided by Huff0 and FSE library.";
+            final value = utf8.encode(input);
+            final compressed = zstd.encode(value);
             final decompressed = zstd.decode(compressed);
             final output = utf8.decode(decompressed);
-            debugPrint('input: $input');
-            debugPrint('compressed: $compressed');
-            debugPrint('decompressed: $decompressed');
-            debugPrint(output);
+            log('input: $input');
+            log('compressed: $compressed');
+            log('decompressed: $decompressed');
+            log('output: $output');
           },
         ),
       ),
