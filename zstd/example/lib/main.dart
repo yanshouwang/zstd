@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:developer';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 
 import 'package:zstd/zstd.dart';
 
@@ -25,20 +26,42 @@ class HomeView extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       child: Center(
-        child: CupertinoButton(
-          child: Text('ZSTD'),
-          onPressed: () {
-            final input =
-                "Zstandard, or zstd as short version, is a fast lossless compression algorithm, targeting real-time compression scenarios at zlib-level and better compression ratios. It's backed by a very fast entropy stage, provided by Huff0 and FSE library.";
-            final value = utf8.encode(input);
-            final compressed = zstd.encode(value);
-            final decompressed = zstd.decode(compressed);
-            final output = utf8.decode(decompressed);
-            log('input: $input');
-            log('compressed: $compressed');
-            log('decompressed: $decompressed');
-            log('output: $output');
-          },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              child: Text('ZSTD'),
+              onPressed: () async {
+                final input = await rootBundle
+                    .load('assets/github/user.0AdXA5MNzW.json')
+                    .then((e) => Uint8List.sublistView(e));
+                final compressed = zstd.encode(input);
+                final ratio = input.length / compressed.length;
+                log('encode ratio is $ratio');
+                final decompressed = zstd.decode(compressed);
+                final decoded = utf8.decode(decompressed);
+                log('decoded is $decoded');
+              },
+            ),
+            CupertinoButton(
+              child: Text('ZSTD with dictionary'),
+              onPressed: () async {
+                final dictionary = await rootBundle
+                    .load('assets/github.dict')
+                    .then((e) => Uint8List.sublistView(e));
+                final zstd = ZstdCodec(dictionary: dictionary);
+                final input = await rootBundle
+                    .load('assets/github/user.0AdXA5MNzW.json')
+                    .then((e) => Uint8List.sublistView(e));
+                final compressed = zstd.encode(input);
+                final ratio = input.length / compressed.length;
+                log('encode ratio with dictionary is $ratio');
+                final decompressed = zstd.decode(compressed);
+                final decoded = utf8.decode(decompressed);
+                log('decoded with dictionary is $decoded');
+              },
+            ),
+          ],
         ),
       ),
     );

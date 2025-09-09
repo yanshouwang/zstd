@@ -116,14 +116,26 @@ final class ZstdCompressFilterImpl extends ZstdFilterImpl
       ZSTD_cParameter.ZSTD_c_compressionLevel,
       level,
     ).checkError();
-    // TODO: implement init with dictionary
-    if (dictionary != null) throw UnimplementedError();
+    if (dictionary == null) {
+      _bindings.ZSTD_CCtx_loadDictionary(cctx, nullptr, 0).checkError();
+    } else {
+      using((arena) {
+        final dictSize = dictionary.length;
+        final dict = arena<Uint8>(dictSize);
+        dict.asTypedList(dictSize).setAll(0, dictionary);
+        _bindings.ZSTD_CCtx_loadDictionary(
+          cctx,
+          dict.cast<Void>(),
+          dictSize,
+        ).checkError();
+      });
+    }
   }
 
   @override
   List<int>? processd(bool flush, bool end) {
     // Check is input is consumed completely.
-    // Call ZSTD_compressStream2 until input pos == inpu size when end is false.
+    // Call ZSTD_compressStream2 until input pos == input size when end is false.
     // Call ZSTD_compressStream2 until input src is null when end is true.
     if (end ? input.ref.src.isNull : input.ref.pos == input.ref.size) {
       return null;
@@ -200,8 +212,20 @@ final class ZstdDecompressFilterImpl extends ZstdFilterImpl
       dctx,
       ZSTD_ResetDirective.ZSTD_reset_session_only,
     ).checkError();
-    // TODO: implement init with dictionary
-    if (dictionary != null) throw UnimplementedError();
+    if (dictionary == null) {
+      _bindings.ZSTD_DCtx_loadDictionary(dctx, nullptr, 0).checkError();
+    } else {
+      using((arena) {
+        final dictSize = dictionary.length;
+        final dict = arena<Uint8>(dictSize);
+        dict.asTypedList(dictSize).setAll(0, dictionary);
+        _bindings.ZSTD_DCtx_loadDictionary(
+          dctx,
+          dict.cast<Void>(),
+          dictSize,
+        ).checkError();
+      });
+    }
   }
 
   @override
