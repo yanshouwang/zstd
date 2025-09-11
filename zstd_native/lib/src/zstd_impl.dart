@@ -103,10 +103,6 @@ final class ZstdCompressFilterImpl extends ZstdFilterImpl
     input.ref.src = nullptr;
     input.ref.size = 0;
     input.ref.pos = 0;
-    final outSize = _bindings.ZSTD_CStreamOutSize().checkError();
-    output.ref.dst = malloc<Uint8>(outSize).cast<Void>();
-    output.ref.size = outSize;
-    output.ref.pos = 0;
     _bindings.ZSTD_CCtx_reset(
       cctx,
       ZSTD_ResetDirective.ZSTD_reset_session_only,
@@ -115,6 +111,11 @@ final class ZstdCompressFilterImpl extends ZstdFilterImpl
       cctx,
       ZSTD_cParameter.ZSTD_c_compressionLevel,
       level,
+    ).checkError();
+    _bindings.ZSTD_CCtx_setParameter(
+      cctx,
+      ZSTD_cParameter.ZSTD_c_checksumFlag,
+      1,
     ).checkError();
     if (dictionary == null) {
       _bindings.ZSTD_CCtx_loadDictionary(cctx, nullptr, 0).checkError();
@@ -141,6 +142,10 @@ final class ZstdCompressFilterImpl extends ZstdFilterImpl
       return null;
     }
     try {
+      final dstSize = _bindings.ZSTD_CStreamOutSize().checkError();
+      output.ref.dst = malloc<Uint8>(dstSize).cast<Void>();
+      output.ref.size = dstSize;
+      output.ref.pos = 0;
       final endOp =
           end
               ? ZSTD_EndDirective.ZSTD_e_end
@@ -168,14 +173,18 @@ final class ZstdCompressFilterImpl extends ZstdFilterImpl
         input.ref.size = 0;
         input.ref.pos = 0;
       }
-      final value = output.ref.dst.cast<Uint8>().asTypedList(output.ref.pos);
-      output.ref.pos = 0;
+      final value = output.ref.dst.cast<Uint8>().asTypedList(
+        output.ref.pos,
+        finalizer: malloc.nativeFree,
+      );
       return value;
     } catch (e) {
       malloc.free(input.ref.src);
       input.ref.src = nullptr;
       input.ref.size = 0;
       input.ref.pos = 0;
+      malloc.free(output.ref.dst);
+      output.ref.size = 0;
       output.ref.pos = 0;
       rethrow;
     }
@@ -204,10 +213,6 @@ final class ZstdDecompressFilterImpl extends ZstdFilterImpl
     input.ref.src = nullptr;
     input.ref.size = 0;
     input.ref.pos = 0;
-    final outSize = _bindings.ZSTD_DStreamOutSize().checkError();
-    output.ref.dst = malloc<Uint8>(outSize).cast<Void>();
-    output.ref.size = outSize;
-    output.ref.pos = 0;
     _bindings.ZSTD_DCtx_reset(
       dctx,
       ZSTD_ResetDirective.ZSTD_reset_session_only,
@@ -234,6 +239,10 @@ final class ZstdDecompressFilterImpl extends ZstdFilterImpl
       return null;
     }
     try {
+      final dstSize = _bindings.ZSTD_DStreamOutSize().checkError();
+      output.ref.dst = malloc<Uint8>(dstSize).cast<Void>();
+      output.ref.size = dstSize;
+      output.ref.pos = 0;
       final remainingSize =
           _bindings.ZSTD_decompressStream(dctx, output, input).checkError();
       // Given a valid frame, zstd won't consume the last byte of the frame
@@ -249,14 +258,18 @@ final class ZstdDecompressFilterImpl extends ZstdFilterImpl
         input.ref.size = 0;
         input.ref.pos = 0;
       }
-      final value = output.ref.dst.cast<Uint8>().asTypedList(output.ref.pos);
-      output.ref.pos = 0;
+      final value = output.ref.dst.cast<Uint8>().asTypedList(
+        output.ref.pos,
+        finalizer: malloc.nativeFree,
+      );
       return value;
     } catch (e) {
       malloc.free(input.ref.src);
       input.ref.src = nullptr;
       input.ref.size = 0;
       input.ref.pos = 0;
+      malloc.free(output.ref.dst);
+      output.ref.size = 0;
       output.ref.pos = 0;
       rethrow;
     }

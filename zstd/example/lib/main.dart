@@ -35,12 +35,13 @@ class HomeView extends StatelessWidget {
                 final input = await rootBundle
                     .load('assets/github/user.0AdXA5MNzW.json')
                     .then((e) => Uint8List.sublistView(e));
-                final compressed = zstd.encode(input);
-                final ratio = input.length / compressed.length;
+                final encoded = zstd.encode(input);
+                final ratio = input.length / encoded.length;
                 log('encode ratio is $ratio');
-                final decompressed = zstd.decode(compressed);
-                final decoded = utf8.decode(decompressed);
-                log('decoded is $decoded');
+                final decoded = zstd.decode(encoded);
+                log('decode length is ${decoded.length}');
+                final text = utf8.decode(decoded);
+                log('decode text is $text');
               },
             ),
             CupertinoButton(
@@ -53,12 +54,13 @@ class HomeView extends StatelessWidget {
                 final input = await rootBundle
                     .load('assets/github/user.0AdXA5MNzW.json')
                     .then((e) => Uint8List.sublistView(e));
-                final compressed = zstd.encode(input);
-                final ratio = input.length / compressed.length;
+                final encoded = zstd.encode(input);
+                final ratio = input.length / encoded.length;
                 log('encode ratio with dictionary is $ratio');
-                final decompressed = zstd.decode(compressed);
-                final decoded = utf8.decode(decompressed);
-                log('decoded with dictionary is $decoded');
+                final decoded = zstd.decode(encoded);
+                log('decode length is ${decoded.length}');
+                final text = utf8.decode(decoded);
+                log('decode text is $text');
               },
             ),
           ],
