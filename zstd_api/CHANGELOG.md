@@ -1,3 +1,7 @@
+## 0.0.1-dev.2
+
+* Bump version.
+
 ## 0.0.1-dev.1
 
 * Bump version.
