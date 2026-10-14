@@ -1,5 +1,3 @@
-import 'package:native_toolchain_c/native_toolchain_c.dart';
-import 'package:logging/logging.dart';
 import 'package:hooks/hooks.dart';
 
 import 'cmake/cmake_builder.dart';
@@ -13,12 +11,13 @@ void main(List<String> args) async {
       refspec: 'v1.5.7',
       subDir: 'build/cmake/',
       defines: {
+        'BUILD_SHARED_LIBS': 'ON',
         'ZSTD_BUILD_PROGRAMS': 'OFF',
         'ZSTD_BUILD_STATIC': 'OFF',
         'ZSTD_BUILD_SHARED': 'ON',
       },
       name: name,
-      assetName: '${name}_bindings_generated.dart',
+      assetName: 'src/$name.ffi.dart',
     );
     await builder.run(input: input, output: output);
   });

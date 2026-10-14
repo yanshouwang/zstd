@@ -4,7 +4,6 @@ import 'package:change_case/change_case.dart';
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/src/logger.dart';
-import 'package:path/path.dart' as path;
 
 import 'build_mode.dart';
 import 'link_mode.dart';
@@ -64,14 +63,33 @@ final class CMakeBuilder implements Builder {
       logger: logger,
       throwOnUnexpectedExitCode: true,
     );
-    // git remote add origin <url>
-    await runProcess(
+    // git remote
+    final result = await runProcess(
       executable: git.uri,
-      arguments: ['remote', 'add', 'origin', url],
+      arguments: ['remote'],
       workingDirectory: srcDir,
       logger: logger,
-      throwOnUnexpectedExitCode: false,
+      throwOnUnexpectedExitCode: true,
     );
+    if (result.stdout.trim().isEmpty) {
+      // git remote add origin <url>
+      await runProcess(
+        executable: git.uri,
+        arguments: ['remote', 'add', 'origin', url],
+        workingDirectory: srcDir,
+        logger: logger,
+        throwOnUnexpectedExitCode: true,
+      );
+    } else {
+      // git remote set-url origin <url>
+      await runProcess(
+        executable: git.uri,
+        arguments: ['remote', 'set-url', 'origin', url],
+        workingDirectory: srcDir,
+        logger: logger,
+        throwOnUnexpectedExitCode: true,
+      );
+    }
     // git fetch origin <refspec>
     await runProcess(
       executable: git.uri,
@@ -135,34 +153,15 @@ final class CMakeBuilder implements Builder {
       throwOnUnexpectedExitCode: true,
     );
 
-    // final linkMode = getLinkMode(input.config.code.linkModePreference);
-    // final libDir = outDir.resolve('lib/');
-    // final libName = input.config.code.targetOS.libraryFileName(name, linkMode);
-    // final libExt = path.extension(libName);
-    // final libAsset = CodeAsset(
-    //   package: input.packageName,
-    //   name: assetName,
-    //   linkMode: linkMode,
-    //   file: libDir.resolve(libName),
-    // );
-    // output.assets.code.add(libAsset);
-
-    // final entities = await Directory.fromUri(libDir).list().toList();
-    // final files = entities.whereType<File>().toList();
-    // for (final file in files) {
-    //   final filePath = file.path;
-    //   final fileName = path.basename(filePath);
-    //   final fileNameWithoutExt = path.basenameWithoutExtension(filePath);
-    //   final fileExt = path.extension(filePath);
-    //   if (fileName == libName || fileExt != libExt) continue;
-    //   final fileAsset = CodeAsset(
-    //     package: input.packageName,
-    //     name: 'src/ffi/$fileNameWithoutExt.g.dart',
-    //     linkMode: linkMode,
-    //     file: file.uri,
-    //   );
-    //   output.assets.code.add(fileAsset);
-    // }
+    final linkMode = getLinkMode(input.config.code.linkModePreference);
+    final libName = input.config.code.targetOS.libraryFileName(name, linkMode);
+    final libAsset = CodeAsset(
+      package: input.packageName,
+      name: assetName,
+      linkMode: linkMode,
+      file: outDir.resolve('lib/$libName'),
+    );
+    output.assets.code.add(libAsset);
   }
 
   List<String> _getTargetDefines(

@@ -1,49 +1,51 @@
 # zstd
 
-A new Dart FFI package project.
+`zstd` is a Flutter plugin that provides fast lossless compression and decompression using the [Zstandard (zstd)](https://facebook.github.io/zstd/) algorithm. It enables Dart and Flutter applications to efficiently compress and decompress data across multiple platforms, including Android, iOS, macOS, Windows and Linux.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter
-[FFI package](https://flutter.dev/to/ffi-package),
-a specialized package that includes native code directly invoked with Dart FFI.
+- Compress and decompress data using the zstd algorithm
+- Cross-platform support: Android, iOS, macOS, Windows, Linux
+- Simple Dart API
 
-## Project structure
+## Installation
 
-This template uses the following structure:
+```yaml
+dependencies:
+	zstd: ^<latest_version>
+```
 
-* `src`: Contains the native source code, and a CmakeFile.txt file for building
-  that source code into a dynamic library.
+## Usage
 
-* `lib`: Contains the Dart code that defines the API of the plugin, and which
-  calls into the native code using `dart:ffi`.
+```dart
+import 'package:zstd/zstd.dart';
+```
 
-* `bin`: Contains the `build.dart` that performs the external native builds.
+Compress and decompress data:
 
-## Building and bundling native code
+```dart
+final input = utf8.encode('Hello, zstd!');
+final encoded = zstd.encode(value);
+final decoded = zstd.decode(encoded);
+final text = utf8.decode(decoded);
+debugPrint(text); // Hello, zstd!
+```
 
-`build.dart` does the building of native components.
+See the [example](../example/lib/main.dart) for more details.
 
-Bundling is done by Flutter based on the output from `build.dart`.
+## Platform Support
 
-## Binding to native code
+- Android
+- iOS
+- macOS
+- Windows
+- Linux
 
-To use the native code, bindings in Dart are needed.
-To avoid writing these by hand, they are generated from the header file
-(`src/zstd.h`) by `package:ffigen`.
-Regenerate the bindings by running `dart run ffigen --config ffigen.yaml`.
+## Contributing
 
-## Invoking native code
+Contributions are welcome! Please open issues or submit pull requests for bug fixes, new features, or improvements.
 
-Very short-running native functions can be directly invoked from any isolate.
-For example, see `sum` in `lib/zstd.dart`.
+## License
 
-Longer-running functions should be invoked on a helper isolate to avoid
-dropping frames in Flutter applications.
-For example, see `sumAsync` in `lib/zstd.dart`.
+This project is licensed under the MIT License. See the [LICENSE](../LICENSE) file for details.
 
-## Flutter help
-
-For help getting started with Flutter, view our
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.

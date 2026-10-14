@@ -1,71 +1,69 @@
-import 'package:flutter/material.dart';
-import 'dart:async';
+import 'dart:convert';
+import 'dart:developer';
 
-import 'package:zstd/zstd.dart' as zstd;
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
+
+import 'package:zstd/zstd.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  Widget build(BuildContext context) {
+    return CupertinoApp(home: HomeView());
+  }
 }
 
-class _MyAppState extends State<MyApp> {
-  late int sumResult;
-  late Future<int> sumAsyncResult;
-
-  @override
-  void initState() {
-    super.initState();
-    sumResult = zstd.sum(1, 2);
-    sumAsyncResult = zstd.sumAsync(3, 4);
-  }
+class HomeView extends StatelessWidget {
+  const HomeView({super.key});
 
   @override
   Widget build(BuildContext context) {
-    const textStyle = TextStyle(fontSize: 25);
-    const spacerSmall = SizedBox(height: 10);
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Native Packages')),
-        body: SingleChildScrollView(
-          child: Container(
-            padding: const .all(10),
-            child: Column(
-              children: [
-                const Text(
-                  'This calls a native function through FFI that is shipped as source in the package. '
-                  'The native code is built as part of the Flutter Runner build.',
-                  style: textStyle,
-                  textAlign: .center,
-                ),
-                spacerSmall,
-                Text(
-                  'sum(1, 2) = $sumResult',
-                  style: textStyle,
-                  textAlign: .center,
-                ),
-                spacerSmall,
-                FutureBuilder<int>(
-                  future: sumAsyncResult,
-                  builder: (BuildContext context, AsyncSnapshot<int> value) {
-                    final displayValue = (value.hasData)
-                        ? value.data
-                        : 'loading';
-                    return Text(
-                      'await sumAsync(3, 4) = $displayValue',
-                      style: textStyle,
-                      textAlign: .center,
-                    );
-                  },
-                ),
-              ],
+    return CupertinoPageScaffold(
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              child: Text('ZSTD'),
+              onPressed: () async {
+                final input = await rootBundle
+                    .load('assets/github/user.0AdXA5MNzW.json')
+                    .then((e) => Uint8List.sublistView(e));
+                final encoded = zstd.encode(input);
+                final ratio = input.length / encoded.length;
+                log('encode ratio is $ratio');
+                final decoded = zstd.decode(encoded);
+                log('decode length is ${decoded.length}');
+                final text = utf8.decode(decoded);
+                log('decode text is $text');
+              },
             ),
-          ),
+            CupertinoButton(
+              child: Text('ZSTD with dictionary'),
+              onPressed: () async {
+                final dictionary = await rootBundle
+                    .load('assets/dictionary')
+                    .then((e) => Uint8List.sublistView(e));
+                final zstd = ZstdCodec(dictionary: dictionary);
+                final input = await rootBundle
+                    .load('assets/github/user.0AdXA5MNzW.json')
+                    .then((e) => Uint8List.sublistView(e));
+                final encoded = zstd.encode(input);
+                final ratio = input.length / encoded.length;
+                log('encode ratio with dictionary is $ratio');
+                final decoded = zstd.decode(encoded);
+                log('decode length is ${decoded.length}');
+                final text = utf8.decode(decoded);
+                log('decode text is $text');
+              },
+            ),
+          ],
         ),
       ),
     );
