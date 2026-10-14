@@ -172,12 +172,13 @@ final class CMakeBuilder implements Builder {
     );
 
     final linkMode = getLinkMode(input.config.code.linkModePreference);
+    final libPath = input.config.code.targetOS.libraryDirectoryPath(linkMode);
     final libName = input.config.code.targetOS.libraryFileName(name, linkMode);
     final libAsset = CodeAsset(
       package: input.packageName,
       name: assetName,
       linkMode: linkMode,
-      file: outDir.resolve('lib/$libName'),
+      file: outDir.resolve('$libPath/$libName'),
     );
     output.assets.code.add(libAsset);
   }
@@ -214,11 +215,22 @@ final class CMakeBuilder implements Builder {
       };
 }
 
+extension on OS {
+  String libraryDirectoryPath(LinkMode linkMode) => switch (this) {
+    .android => 'lib',
+    .iOS => 'lib',
+    .windows => linkMode is DynamicLoadingBundled ? 'bin' : 'lib',
+    .macOS => 'lib',
+    .linux => 'lib',
+    _ => throw UnsupportedError('$this is not supported'),
+  };
+}
+
 extension on Architecture {
   String toOsxArchitecture() => switch (this) {
     .arm64 => 'arm64',
     .x64 => 'x86_64',
-    _ => throw UnsupportedError('Unsupported architecture: $this'),
+    _ => throw UnsupportedError('$this is not supported'),
   };
 
   String toAndroidAbi() => switch (this) {
@@ -227,7 +239,7 @@ extension on Architecture {
     .ia32 => 'x86',
     .x64 => 'x86_64',
     .riscv64 => 'riscv64',
-    _ => throw UnsupportedError('Unsupported architecture: $this'),
+    _ => throw UnsupportedError('$this is not supported'),
   };
 
   String toSystemProcessor() => switch (this) {
@@ -237,6 +249,6 @@ extension on Architecture {
     .riscv32 => 'riscv32',
     .riscv64 => 'riscv64',
     .x64 => 'x86_64',
-    _ => throw UnsupportedError('Unsupported architecture: $this'),
+    _ => throw UnsupportedError('$this is not supported'),
   };
 }
