@@ -1,0 +1,402 @@
+// Copyright (c) 2023, the Dart project authors.  Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
+import 'dart:convert';
+
+import 'package:code_assets/code_assets.dart';
+import 'package:file/file.dart' show FileSystem;
+import 'package:glob/glob.dart';
+import 'package:logging/logging.dart';
+
+import '../tool/tool.dart';
+import '../tool/tool_instance.dart';
+import '../tool/tool_resolver.dart';
+import '../utils/run_process.dart';
+import '../utils/sem_version.dart';
+
+/// The Visual Studio Locator.
+///
+/// https://github.com/microsoft/vswhere
+final Tool vswhere = Tool(
+  name: 'Visual Studio Locator',
+  defaultResolver: CliVersionResolver(
+    arguments: [],
+    wrappedResolver: ToolResolvers([
+      PathToolResolver(
+        toolName: 'Visual Studio Locator',
+        executableName: 'vswhere.exe',
+      ),
+      InstallLocationResolver(
+        toolName: 'Visual Studio Locator',
+        paths: [
+          'C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe',
+          'C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe',
+        ],
+      ),
+    ]),
+  ),
+);
+
+/// A Visual Studio installation that ships the MSVC tools for x86/x64.
+///
+/// Resolved via [vswhere] requiring
+/// `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`, which filters out
+/// installs that lack the C++ toolchain (e.g. SSMS) even when their
+/// `installationVersion` would otherwise win `vswhere -latest`.
+///
+/// https://visualstudio.microsoft.com/
+final Tool visualStudioX64 = Tool(
+  name: 'Visual Studio (x64)',
+  defaultResolver: VisualStudioResolver(targetArchitecture: .x64),
+);
+
+/// A Visual Studio installation that ships the MSVC tools for arm64.
+///
+/// Resolved via [vswhere] requiring
+/// `Microsoft.VisualStudio.Component.VC.Tools.arm64`. May resolve a
+/// different installation than [visualStudioX64] when not every VS instance
+/// on the machine has the arm64 cross toolchain installed.
+///
+/// https://visualstudio.microsoft.com/
+final Tool visualStudioArm64 = Tool(
+  name: 'Visual Studio (arm64)',
+  defaultResolver: VisualStudioResolver(targetArchitecture: .arm64),
+);
+
+/// The C/C++ Optimizing Compiler installation for targeting x86/x64.
+///
+/// Resolved relative to [visualStudioX64].
+final Tool msvc = Tool(
+  name: 'MSVC',
+  defaultResolver: PathVersionResolver(
+    wrappedResolver: RelativeToolResolver(
+      toolName: 'MSVC',
+      wrappedResolver: visualStudioX64.defaultResolver!,
+      relativePath: Uri(path: './VC/Tools/MSVC/*/'),
+    ),
+  ),
+);
+
+/// The C/C++ Optimizing Compiler installation for targeting arm64.
+///
+/// Resolved relative to [visualStudioArm64], which may point at a different
+/// VS installation than [msvc] when only some installs have the arm64
+/// cross toolchain.
+final Tool msvcArm64 = Tool(
+  name: 'MSVC',
+  defaultResolver: PathVersionResolver(
+    wrappedResolver: RelativeToolResolver(
+      toolName: 'MSVC',
+      wrappedResolver: visualStudioArm64.defaultResolver!,
+      relativePath: Uri(path: './VC/Tools/MSVC/*/'),
+    ),
+  ),
+);
+
+Tool vcvars(ToolInstance toolInstance) {
+  final tool = toolInstance.tool;
+  assert(tool == cl || tool == msvcLink || tool == lib);
+  final vcDir = toolInstance.uri.resolve('../../../../../../');
+  final String fileName;
+  if (toolInstance.uri.toFilePath().contains('\\x86\\')) {
+    fileName = 'vcvars32.bat';
+  } else if (toolInstance.uri.toFilePath().contains('\\arm64\\')) {
+    // TODO(https://github.com/dart-lang/native/issues/170): Support native
+    // windows-arm64 MSVC toolchain.
+    // vcvarsarm64 only works on native windows-arm64. In case of cross
+    // compilation, it's better to stick to cross toolchain, which works under
+    // emulation on windows-arm64.
+    fileName = 'vcvarsamd64_arm64.bat';
+  } else {
+    fileName = 'vcvars64.bat';
+  }
+  final batchScript = vcDir.resolve('Auxiliary/Build/$fileName');
+  return Tool(
+    name: fileName,
+    defaultResolver: InstallLocationResolver(
+      toolName: fileName,
+      paths: [Glob.quote(batchScript.toFilePath().replaceAll('\\', '/'))],
+    ),
+  );
+}
+
+final Tool vcvars64 = Tool(
+  name: 'vcvars64.bat',
+  defaultResolver: RelativeToolResolver(
+    toolName: 'vcvars64.bat',
+    wrappedResolver: visualStudioX64.defaultResolver!,
+    relativePath: Uri(path: './VC/Auxiliary/Build/vcvars64.bat'),
+  ),
+);
+
+final Tool vcvars32 = Tool(
+  name: 'vcvars32.bat',
+  defaultResolver: RelativeToolResolver(
+    toolName: 'vcvars32.bat',
+    wrappedResolver: visualStudioX64.defaultResolver!,
+    relativePath: Uri(path: './VC/Auxiliary/Build/vcvars32.bat'),
+  ),
+);
+
+final Tool vcvarsarm64 = Tool(
+  // TODO(https://github.com/dart-lang/native/issues/170): Support native
+  // windows-arm64 MSVC toolchain.
+  // vcvarsarm64 only works on native windows-arm64. In case of cross
+  // compilation, it's better to stick to cross toolchain, which works under
+  // emulation on windows-arm64.
+  name: 'vcvarsamd64_arm64.bat',
+  defaultResolver: RelativeToolResolver(
+    toolName: 'vcvarsamd64_arm64.bat',
+    wrappedResolver: visualStudioX64.defaultResolver!,
+    relativePath: Uri(path: './VC/Auxiliary/Build/vcvarsamd64_arm64.bat'),
+  ),
+);
+
+final Tool vcvarsall = Tool(
+  name: 'vcvarsall.bat',
+  defaultResolver: RelativeToolResolver(
+    toolName: 'vcvars32.bat',
+    wrappedResolver: visualStudioX64.defaultResolver!,
+    relativePath: Uri(path: './VC/Auxiliary/Build/vcvarsall.bat'),
+  ),
+);
+
+final Tool vsDevCmd = Tool(
+  name: 'VsDevCmd.bat',
+  defaultResolver: RelativeToolResolver(
+    toolName: 'VsDevCmd.bat',
+    wrappedResolver: visualStudioX64.defaultResolver!,
+    relativePath: Uri(path: './Common7/Tools/VsDevCmd.bat'),
+  ),
+);
+
+/// The C/C++ Optimizing Compiler main executable.
+///
+/// For targeting [Architecture.x64].
+final Tool cl = _msvcTool(
+  name: 'cl',
+  versionArguments: [],
+  targetArchitecture: .x64,
+  hostArchitecture: .current,
+);
+
+/// The C/C++ Optimizing Compiler main executable.
+///
+/// For targeting [Architecture.ia32].
+final Tool clIA32 = _msvcTool(
+  name: 'cl',
+  versionArguments: [],
+  targetArchitecture: .ia32,
+  hostArchitecture: .current,
+);
+
+/// The C/C++ Optimizing Compiler main executable.
+///
+/// For targeting [Architecture.arm64].
+final Tool clArm64 = _msvcTool(
+  name: 'cl',
+  versionArguments: [],
+  targetArchitecture: .arm64,
+  hostArchitecture: .current,
+);
+
+final Tool lib = _msvcTool(
+  name: 'lib',
+  targetArchitecture: .x64,
+  hostArchitecture: .current,
+  // https://github.com/dart-lang/native/issues/18
+  resolveVersion: false,
+);
+
+final Tool libIA32 = _msvcTool(
+  name: 'lib',
+  targetArchitecture: .ia32,
+  hostArchitecture: .current,
+  // https://github.com/dart-lang/native/issues/18
+  resolveVersion: false,
+);
+
+final Tool libArm64 = _msvcTool(
+  name: 'lib',
+  targetArchitecture: .arm64,
+  hostArchitecture: .current,
+  // https://github.com/dart-lang/native/issues/18
+  resolveVersion: false,
+);
+
+final Tool msvcLink = _msvcTool(
+  name: 'link',
+  versionArguments: ['/help'],
+  versionExitCode: 1100,
+  targetArchitecture: .x64,
+  hostArchitecture: .current,
+);
+
+final Tool linkIA32 = _msvcTool(
+  name: 'link',
+  versionArguments: ['/help'],
+  versionExitCode: 1100,
+  targetArchitecture: .ia32,
+  hostArchitecture: .current,
+);
+
+final Tool linkArm64 = _msvcTool(
+  name: 'link',
+  versionArguments: ['/help'],
+  versionExitCode: 1100,
+  targetArchitecture: .arm64,
+  hostArchitecture: .current,
+);
+
+final Tool dumpbin = _msvcTool(
+  name: 'dumpbin',
+  targetArchitecture: .x64,
+  hostArchitecture: .current,
+);
+
+final _msvcArchNames = {
+  Architecture.ia32: 'x86',
+  Architecture.x64: 'x64',
+  Architecture.arm64: 'arm64',
+};
+
+Tool _msvcTool({
+  required String name,
+  required Architecture targetArchitecture,
+  required Architecture hostArchitecture,
+  List<String> versionArguments = const ['--version'],
+  int versionExitCode = 0,
+  bool resolveVersion = true,
+}) {
+  final executableName = OS.windows.executableFileName(name);
+  if (OS.current != OS.windows) {
+    return Tool(name: executableName, defaultResolver: ToolResolvers([]));
+  }
+  final hostArchName = _msvcArchNames[hostArchitecture]!;
+  final targetArchName = _msvcArchNames[targetArchitecture]!;
+  ToolResolver resolver = RelativeToolResolver(
+    toolName: executableName,
+    wrappedResolver: switch (targetArchitecture) {
+      .arm64 => msvcArm64.defaultResolver!,
+      _ => msvc.defaultResolver!,
+    },
+    relativePath: Uri(
+      path: 'bin/Host$hostArchName/$targetArchName/$executableName',
+    ),
+  );
+  if (resolveVersion) {
+    resolver = CliVersionResolver(
+      expectedExitCode: versionExitCode,
+      arguments: versionArguments,
+      wrappedResolver: resolver,
+    );
+  }
+  return Tool(name: executableName, defaultResolver: resolver);
+}
+
+/// Resolves Visual Studio installations that ship the MSVC tools for
+/// [targetArchitecture].
+///
+/// Runs [vswhere] with `-latest -requires
+/// Microsoft.VisualStudio.Component.VC.Tools.{arch}`. The `-requires` filter
+/// is necessary because tools like SSMS share the VS installer and can
+/// outrank Visual Studio under `-latest` when sorted by version alone (see
+/// https://github.com/dart-lang/native/issues/3327). On machines with
+/// multiple VS installations, different [targetArchitecture]s may resolve to
+/// different installs.
+class VisualStudioResolver implements ToolResolver {
+  VisualStudioResolver({required this.targetArchitecture});
+
+  final Architecture targetArchitecture;
+
+  Tool get _tool => switch (targetArchitecture) {
+    .arm64 => visualStudioArm64,
+    _ => visualStudioX64,
+  };
+
+  String get _pkgArchSuffix => switch (targetArchitecture) {
+    .arm64 => 'arm64',
+    _ => 'x86.x64',
+  };
+
+  @override
+  Future<List<ToolInstance>> resolve(ToolResolvingContext context) async {
+    final vswhereInstances = await vswhere.defaultResolver!.resolve(context);
+    final logger = context.logger;
+    final pkgArchSuffix = _pkgArchSuffix;
+
+    final result = <ToolInstance>[];
+    for (final vswhereInstance in vswhereInstances.take(1)) {
+      final vswhereResult = await runProcess(
+        executable: vswhereInstance.uri,
+        arguments: [
+          '-format',
+          'json',
+          '-utf8',
+          '-latest',
+          '-products',
+          '*',
+          '-requires',
+          'Microsoft.VisualStudio.Component.VC.Tools.$pkgArchSuffix',
+        ],
+        logger: logger,
+        processManager: context.processManager,
+      );
+      final instances = parseVswhere(
+        vswhereResult.stdout,
+        context.fileSystem,
+        logger,
+      );
+      result.addAll(instances);
+    }
+    if (result.isEmpty) {
+      logger?.warning(
+        'No Visual Studio installation found with the requested '
+        'Microsoft.VisualStudio.Component.VC.Tools.$pkgArchSuffix component.',
+      );
+      logger?.info('You can install the missing package via');
+      for (final vsWhere in vswhereInstances) {
+        final vsInstallerUri = vsWhere.uri
+            .resolve('../vs_installer.exe')
+            .toFilePath();
+        logger?.warning(
+          // highlight command for user
+          '`  $vsInstallerUri install --add '
+          'Microsoft.VisualStudio.Component.VC.Tools.$pkgArchSuffix`',
+        );
+        if (vswhereInstances.length > 1 && vswhereInstances.last != vsWhere) {
+          logger?.info('or');
+        }
+      }
+    }
+    return result;
+  }
+
+  List<ToolInstance> parseVswhere(
+    String vswhereStdout,
+    FileSystem fileSystem, [
+    Logger? logger,
+  ]) {
+    final result = <ToolInstance>[];
+    final toolInfos = json.decode(vswhereStdout) as List;
+    for (final toolInfo in toolInfos) {
+      final toolInfoParsed = toolInfo as Map<String, Object?>;
+      if (toolInfoParsed['installationPath'] != null &&
+          toolInfoParsed['installationVersion'] != null) {
+        final dir = fileSystem.directory(
+          toolInfoParsed['installationPath'] as String,
+        );
+        assert(dir.existsSync());
+        final uri = dir.uri;
+        final version = versionFromString(
+          toolInfoParsed['installationVersion'] as String,
+        );
+        final instance = ToolInstance(tool: _tool, uri: uri, version: version);
+        logger?.fine('Found $instance.');
+        result.add(instance);
+      }
+    }
+    return result;
+  }
+}

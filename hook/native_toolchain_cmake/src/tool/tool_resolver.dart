@@ -3,12 +3,14 @@
 // BSD-style license that can be found in the LICENSE file.
 
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show Platform;
 
 import 'package:code_assets/code_assets.dart';
+import 'package:file/file.dart';
+import 'package:file/local.dart';
 import 'package:glob/glob.dart';
-import 'package:glob/list_local_fs.dart';
 import 'package:logging/logging.dart';
+import 'package:process/process.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 import '../utils/run_process.dart';
@@ -28,14 +30,23 @@ abstract class ToolResolver {
 /// global state not available in this context. Not all resolvers adhere to that
 /// though, since some need to run subprocesses to resolve tools.
 final class ToolResolvingContext {
-  // TODO: Expose package:file and package:process environments here and use
-  // them in resolvers to consistently mock external state.
-
   final Logger? logger;
   final Map<String, String> environment;
 
-  ToolResolvingContext({required this.logger, Map<String, String>? environment})
-    : environment = environment ?? Platform.environment;
+  /// Used to spawn processes so they can be mocked in tests.
+  final ProcessManager processManager;
+
+  /// Used to access the file system so it can be mocked in tests.
+  final FileSystem fileSystem;
+
+  ToolResolvingContext({
+    required this.logger,
+    Map<String, String>? environment,
+    ProcessManager? processManager,
+    FileSystem? fileSystem,
+  }) : environment = environment ?? Platform.environment,
+       processManager = processManager ?? const LocalProcessManager(),
+       fileSystem = fileSystem ?? const LocalFileSystem();
 }
 
 /// Tries to resolve a tool on the `PATH`.
@@ -71,17 +82,24 @@ class PathToolResolver extends ToolResolver {
     return toolInstances;
   }
 
-  static Uri get which => Uri.file(Platform.isWindows ? 'where' : 'which');
+  // `package:process` resolves extension-less names via `PATHEXT`, which hook
+  // environments may not define, so the extension is spelled out on Windows.
+  static Uri get which => Uri.file(Platform.isWindows ? 'where.exe' : 'which');
 
   Future<Uri?> runWhich(ToolResolvingContext context) async {
     final process = await runProcess(
       executable: which,
       arguments: [executableName],
       logger: context.logger,
+      processManager: context.processManager,
     );
     if (process.exitCode == 0) {
-      final file = File(LineSplitter.split(process.stdout).first);
-      final uri = File(await file.resolveSymbolicLinks()).uri;
+      final file = context.fileSystem.file(
+        LineSplitter.split(process.stdout).first,
+      );
+      final uri = context.fileSystem
+          .file(await file.resolveSymbolicLinks())
+          .uri;
       if (uri.pathSegments.last case 'llvm' || 'lld') {
         // https://github.com/dart-lang/native/issues/136
         return file.uri;
@@ -115,6 +133,7 @@ class CliVersionResolver implements ToolResolver {
           arguments: arguments,
           expectedExitCode: expectedExitCode,
           logger: context.logger,
+          processManager: context.processManager,
         ),
     ];
   }
@@ -124,14 +143,17 @@ class CliVersionResolver implements ToolResolver {
     List<String> arguments = const ['--version'],
     int expectedExitCode = 0,
     required Logger? logger,
+    required ProcessManager processManager,
   }) async {
     if (toolInstance.version != null) return toolInstance;
     logger?.finer('Looking up version with --version for $toolInstance.');
     final version = await executableVersion(
       toolInstance.uri,
+      launcher: toolInstance.launcher?.uri,
       arguments: arguments,
       expectedExitCode: expectedExitCode,
       logger: logger,
+      processManager: processManager,
     );
     final result = toolInstance.copyWith(version: version);
     logger?.fine('Found version for $result.');
@@ -140,14 +162,18 @@ class CliVersionResolver implements ToolResolver {
 
   static Future<Version> executableVersion(
     Uri executable, {
+    Uri? launcher,
     List<String> arguments = const ['--version'],
     int expectedExitCode = 0,
     required Logger? logger,
+    required ProcessManager processManager,
   }) async {
     final process = await runProcess(
       executable: executable,
+      launcher: launcher,
       arguments: arguments,
       logger: logger,
+      processManager: processManager,
     );
     if (process.exitCode != expectedExitCode) {
       final executablePath = executable.toFilePath();
@@ -217,7 +243,7 @@ class InstallLocationResolver implements ToolResolver {
     final logger = context.logger;
     logger?.finer('Looking for $toolName in $paths.');
     final resolvedPaths = [
-      for (final path in paths) ...await tryResolvePath(path),
+      for (final path in paths) ...await tryResolvePath(path, context),
     ];
     final toolInstances = [
       for (final uri in resolvedPaths)
@@ -234,7 +260,10 @@ class InstallLocationResolver implements ToolResolver {
     return toolInstances;
   }
 
-  Future<List<Uri>> tryResolvePath(String path) async {
+  Future<List<Uri>> tryResolvePath(
+    String path,
+    ToolResolvingContext context,
+  ) async {
     if (path.startsWith(home)) {
       final homeDir_ = homeDir;
       if (homeDir_ == null) return [];
@@ -245,7 +274,13 @@ class InstallLocationResolver implements ToolResolver {
     }
 
     final result = <Uri>[];
-    final fileSystemEntities = await Glob(path).list().toList();
+    // Glob defaults to the ambient platform's path context. Use the injected
+    // file system's context, so globbing follows the semantics of the file
+    // system being globbed.
+    final fileSystemEntities = await Glob(
+      path,
+      context: context.fileSystem.path,
+    ).listFileSystem(context.fileSystem).toList();
     for (final fileSystemEntity in fileSystemEntities) {
       if (!await fileSystemEntity.exists()) {
         continue;
@@ -262,7 +297,9 @@ class InstallLocationResolver implements ToolResolver {
     final path =
         Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
     if (path == null) return null;
-    return Directory(path).uri;
+    // Pure path-to-URI derivation of the host home directory; no file system
+    // access, so it does not need the mockable file system from the context.
+    return Uri.directory(path);
   }();
 }
 
@@ -290,10 +327,10 @@ class EnvironmentVariableResolver implements ToolResolver {
       logger?.fine('Looking for $toolName in environment variable $key');
       if (context.environment[key] case final found?) {
         final fileSystemEntities = switch (glob) {
-          null => [Directory(found)],
+          null => [context.fileSystem.directory(found)],
           final glob =>
             await glob
-                .list(root: found)
+                .listFileSystem(context.fileSystem, root: found)
                 .where(
                   // If the path ends in /, only consider directories
                   (entity) =>
@@ -350,10 +387,12 @@ class RelativeToolResolver implements ToolResolver {
             ),
             relativePath.path,
           ].join(),
+          context: context.fileSystem.path,
         ),
     ];
     final fileSystemEntities = [
-      for (final glob in globs) ...await glob.list().toList(),
+      for (final glob in globs)
+        ...await glob.listFileSystem(context.fileSystem).toList(),
     ];
 
     final result = [
@@ -389,13 +428,18 @@ class CliFilter implements ToolResolver {
     final toolInstances = await wrappedResolver.resolve(context);
     return [
       for (final toolInstance in toolInstances)
-        await filter(toolInstance, logger: context.logger),
+        await filter(
+          toolInstance,
+          logger: context.logger,
+          processManager: context.processManager,
+        ),
     ].whereType<ToolInstance>().toList();
   }
 
   Future<ToolInstance?> filter(
     ToolInstance toolInstance, {
     required Logger? logger,
+    required ProcessManager processManager,
   }) async {
     if (toolInstance.version != null) return toolInstance;
     logger?.finer('Checking if $toolInstance satisfies CLI filter.');
@@ -403,6 +447,7 @@ class CliFilter implements ToolResolver {
       toolInstance.uri,
       arguments: cliArguments,
       logger: logger,
+      processManager: processManager,
     );
     final doKeep = keepIf(stdout: stdout);
     if (doKeep) {
@@ -418,11 +463,13 @@ class CliFilter implements ToolResolver {
     required List<String> arguments,
     int expectedExitCode = 0,
     required Logger? logger,
+    required ProcessManager processManager,
   }) async {
     final process = await runProcess(
       executable: executable,
       arguments: arguments,
       logger: logger,
+      processManager: processManager,
     );
     final exitCode = process.exitCode;
     assert(exitCode == expectedExitCode);

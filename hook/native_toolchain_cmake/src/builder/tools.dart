@@ -1,9 +1,10 @@
 import 'package:logging/logging.dart';
 
-import 'tool/tool.dart';
-import 'tool/tool_error.dart';
-import 'tool/tool_instance.dart';
-import 'tool/tool_resolver.dart';
+import '../native_toolchain/android_ndk.dart';
+import '../tool/tool.dart';
+import '../tool/tool_error.dart';
+import '../tool/tool_instance.dart';
+import '../tool/tool_resolver.dart';
 
 abstract final class Tools {
   static Tool get git => Tool(
@@ -22,9 +23,11 @@ abstract final class Tools {
       ),
     ),
   );
+
+  static Tool get ndk => androidNdk;
 }
 
-extension ToolX on Tool {
+extension ToolExt on Tool {
   Future<ToolInstance> resolve({required Logger? logger}) async {
     final context = ToolResolvingContext(logger: logger);
     final resolved = (await defaultResolver!.resolve(

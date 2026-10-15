@@ -8,7 +8,7 @@ import 'package:logging/logging.dart';
 
 /// Creates a default logger that logs to stdout and stderr.
 Logger createDefaultLogger() {
-  final logger = Logger.detached('CMakeBuilder');
+  final logger = Logger.detached('CBuilder');
   logger.level = .INFO;
   logger.onRecord.listen((record) {
     if (record.level >= .WARNING) {

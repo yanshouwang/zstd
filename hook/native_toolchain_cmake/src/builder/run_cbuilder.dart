@@ -1,0 +1,584 @@
+// Copyright (c) 2023, the Dart project authors.  Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
+import 'dart:io';
+import 'dart:math';
+
+import 'package:code_assets/code_assets.dart';
+import 'package:file/file.dart' show FileSystem;
+import 'package:hooks/hooks.dart';
+import 'package:logging/logging.dart';
+import 'package:process/process.dart';
+
+import '../native_toolchain/msvc.dart';
+import '../native_toolchain/tool_likeness.dart';
+import '../native_toolchain/wsl.dart';
+import '../native_toolchain/xcode.dart';
+import '../tool/tool_instance.dart';
+import '../tool/tool_resolver.dart';
+import '../utils/run_process.dart';
+import 'compiler_resolver.dart';
+import 'language.dart';
+import 'linker_options.dart';
+import 'optimization_level.dart';
+
+class RunCBuilder {
+  /// The options are for linking only, so this will be non-null iff a linker
+  /// should be run.
+  final LinkerOptions? linkerOptions;
+  final HookInput input;
+  final CodeConfig codeConfig;
+  final Logger? logger;
+  final ProcessManager processManager;
+  final FileSystem fileSystem;
+  final List<Uri> sources;
+  final List<Uri> includes;
+  final List<Uri> forcedIncludes;
+  final List<String> frameworks;
+  final List<String> libraries;
+  final List<Uri> libraryDirectories;
+  final Uri? executable;
+  final Uri? dynamicLibrary;
+  final Uri? staticLibrary;
+  final Uri outDir;
+
+  /// The install name of the [dynamicLibrary].
+  ///
+  /// Can be inspected with `otool -D <path-to-dylib>`.
+  ///
+  /// Can be modified with `install_name_tool`.
+  final Uri? installName;
+
+  final List<String> flags;
+  final Map<String, String?> defines;
+  final bool? pic;
+  final String? std;
+  final Language language;
+  final String? cppLinkStdLib;
+  final OptimizationLevel optimizationLevel;
+
+  RunCBuilder({
+    required this.input,
+    required this.codeConfig,
+    required this.processManager,
+    required this.fileSystem,
+    this.linkerOptions,
+    this.logger,
+    this.sources = const [],
+    this.includes = const [],
+    this.forcedIncludes = const [],
+    required this.frameworks,
+    this.libraries = const [],
+    this.libraryDirectories = const [],
+    this.executable,
+    this.dynamicLibrary,
+    this.staticLibrary,
+    this.installName,
+    this.flags = const [],
+    this.defines = const {},
+    this.pic,
+    this.std,
+    this.language = .c,
+    this.cppLinkStdLib,
+    required this.optimizationLevel,
+  }) : outDir = input.outputDirectory,
+       assert(
+         [executable, dynamicLibrary, staticLibrary].whereType<Uri>().length ==
+             1,
+       ) {
+    if (codeConfig.targetOS == .windows && cppLinkStdLib != null) {
+      throw ArgumentError.value(
+        cppLinkStdLib,
+        'cppLinkStdLib',
+        'is not supported when targeting Windows',
+      );
+    }
+  }
+
+  late final _resolver = CompilerResolver(
+    codeConfig: codeConfig,
+    logger: logger,
+    processManager: processManager,
+    fileSystem: fileSystem,
+  );
+
+  Future<ToolInstance> compiler() async => await _resolver.resolveCompiler();
+
+  Future<ToolInstance> archiver() async => await _resolver.resolveArchiver();
+
+  /// Renders [uri] as a path the [tool] can open.
+  ///
+  /// A tool that runs through the WSL launcher sees the Windows drives mounted
+  /// under `/mnt`, so its paths are mapped (see [toWslPath]). Tools run on the
+  /// host use the host path rendering.
+  String _toolPath(Uri uri, ToolInstance tool) =>
+      tool.launcher?.tool.isWsl == true ? toWslPath(uri) : uri.toFilePath();
+
+  Future<Uri> iosSdk(IOSSdk iosSdk, ToolResolvingContext context) async {
+    if (iosSdk == .iPhoneOS) {
+      return (await iPhoneOSSdk.defaultResolver!.resolve(
+        context,
+      )).where((i) => i.tool == iPhoneOSSdk).first.uri;
+    }
+    assert(iosSdk == .iPhoneSimulator);
+    return (await iPhoneSimulatorSdk.defaultResolver!.resolve(
+      context,
+    )).where((i) => i.tool == iPhoneSimulatorSdk).first.uri;
+  }
+
+  Future<Uri> macosSdk(ToolResolvingContext context) async =>
+      (await macosxSdk.defaultResolver!.resolve(
+        context,
+      )).where((i) => i.tool == macosxSdk).first.uri;
+
+  Uri androidSysroot(ToolInstance compiler) =>
+      compiler.uri.resolve('../sysroot/');
+
+  Future<void> run() async {
+    final toolInstance_ = await compiler();
+    final tool = toolInstance_.tool;
+
+    if (codeConfig.sanitizer != null) {
+      final sanitizer = codeConfig.sanitizer!;
+      final isMsvc = tool == cl;
+      final supportedSanitizers = isMsvc ? _msvcSanitizers : _clangSanitizers;
+      if (!supportedSanitizers.containsKey(sanitizer)) {
+        final compilerName = isMsvc ? 'MSVC' : 'Clang-like compilers';
+        logger?.warning(
+          'The sanitizer \'$sanitizer\' is not supported on $compilerName '
+          'and will be ignored.',
+        );
+      }
+    }
+
+    if (tool.isClangLike || tool.isLdLike) {
+      await runClangLike(tool: toolInstance_);
+      return;
+    } else if (tool == cl) {
+      await runCl(tool: toolInstance_);
+    } else {
+      throw UnimplementedError('This package does not know how to run $tool.');
+    }
+  }
+
+  Future<void> runClangLike({required ToolInstance tool}) async {
+    // Clang for Windows requires the MSVC Developer Environment.
+    final environment = await _resolver.resolveEnvironment(tool);
+
+    final isStaticLib = staticLibrary != null;
+    ToolInstance? archiver_;
+    if (isStaticLib) {
+      archiver_ = await archiver();
+    }
+
+    final IOSSdk? targetIosSdk;
+    if (codeConfig.targetOS == .iOS) {
+      targetIosSdk = codeConfig.iOS.targetSdk;
+    } else {
+      targetIosSdk = null;
+    }
+
+    // The Android Gradle plugin does not honor API level 19 and 20 when
+    // invoking clang. Mimic that behavior here.
+    // See https://github.com/dart-lang/native/issues/171.
+    final int? targetAndroidNdkApi;
+    if (codeConfig.targetOS == .android) {
+      final minimumApi = codeConfig.targetArchitecture == Architecture.riscv64
+          ? 35
+          : 21;
+      targetAndroidNdkApi = max(codeConfig.android.targetNdkApi, minimumApi);
+    } else {
+      targetAndroidNdkApi = null;
+    }
+
+    final targetIOSVersion = codeConfig.targetOS == .iOS
+        ? codeConfig.iOS.targetVersion
+        : null;
+    final targetMacOSVersion = codeConfig.targetOS == .macOS
+        ? codeConfig.macOS.targetVersion
+        : null;
+
+    final architecture = codeConfig.targetArchitecture;
+    final sourceFiles = sources.map((e) => _toolPath(e, tool)).toList();
+    final objectFiles = <Uri>[];
+    if (staticLibrary != null) {
+      for (var i = 0; i < sourceFiles.length; i++) {
+        final objectFile = outDir.resolve('out$i.o');
+        await _compile(
+          tool,
+          architecture,
+          targetAndroidNdkApi,
+          targetIosSdk,
+          targetIOSVersion,
+          targetMacOSVersion,
+          [sourceFiles[i]],
+          objectFile,
+          environment,
+        );
+        objectFiles.add(objectFile);
+      }
+      final isMacToElfCross =
+          Platform.isMacOS &&
+          (codeConfig.targetOS == OS.linux ||
+              codeConfig.targetOS == OS.android);
+      await runProcess(
+        launcher: archiver_!.launcher?.uri,
+        executable: archiver_.uri,
+        arguments: [
+          isMacToElfCross ? 'rcS' : 'rc',
+          _toolPath(outDir.resolveUri(staticLibrary!), archiver_),
+          ...objectFiles.map(
+            (objectFile) => _toolPath(objectFile, archiver_!),
+          ),
+        ],
+        logger: logger,
+        processManager: processManager,
+        captureOutput: false,
+        throwOnUnexpectedExitCode: true,
+        environment: environment,
+      );
+    } else {
+      await _compile(
+        tool,
+        architecture,
+        targetAndroidNdkApi,
+        targetIosSdk,
+        targetIOSVersion,
+        targetMacOSVersion,
+        sourceFiles,
+        dynamicLibrary != null ? outDir.resolveUri(dynamicLibrary!) : null,
+        environment,
+      );
+    }
+  }
+
+  /// [toolInstance] is either a compiler or a linker.
+  Future<void> _compile(
+    ToolInstance toolInstance,
+    Architecture? architecture,
+    int? targetAndroidNdkApi,
+    IOSSdk? targetIosSdk,
+    int? targetIOSVersion,
+    int? targetMacOSVersion,
+    Iterable<String> sourceFiles,
+    Uri? outFile,
+    Map<String, String> environment,
+  ) async {
+    final context = ToolResolvingContext(
+      logger: logger,
+      processManager: processManager,
+      fileSystem: fileSystem,
+    );
+
+    String toolPath(Uri uri) => _toolPath(uri, toolInstance);
+
+    await runProcess(
+      launcher: toolInstance.launcher?.uri,
+      executable: toolInstance.uri,
+      environment: environment,
+      arguments: [
+        if (codeConfig.targetOS == .android) ...[
+          '--target='
+              '${androidNdkClangTargetFlags[architecture]!}'
+              '${targetAndroidNdkApi!}',
+          '--sysroot=${androidSysroot(toolInstance).toFilePath()}',
+        ],
+        if (codeConfig.targetOS == .windows)
+          '--target=${clangWindowsTargetFlags[architecture]!}',
+        if (codeConfig.targetOS == .macOS)
+          '--target=${appleClangMacosTargetFlags[architecture]!}',
+        if (codeConfig.targetOS == .iOS)
+          '--target=${appleClangIosTargetFlags[architecture]![targetIosSdk]!}',
+        if (codeConfig.targetOS == .linux &&
+            OS.current != .linux &&
+            toolInstance.tool.isClang)
+          '--target=${clangLinuxTargetFlags[architecture]!}',
+        if (targetIOSVersion != null) '-mios-version-min=$targetIOSVersion',
+        if (targetMacOSVersion != null)
+          '-mmacos-version-min=$targetMacOSVersion',
+        if (codeConfig.targetOS == .iOS) ...[
+          '-isysroot',
+          (await iosSdk(targetIosSdk!, context)).toFilePath(),
+        ],
+        if (codeConfig.targetOS == .macOS) ...[
+          '-isysroot',
+          (await macosSdk(context)).toFilePath(),
+        ],
+        if (installName != null) ...[
+          '-install_name',
+          installName!.toFilePath(),
+        ],
+        if (pic != null)
+          if (toolInstance.tool.isClangLike &&
+              codeConfig.targetOS != .windows) ...[
+            if (pic!) ...[
+              if (dynamicLibrary != null) '-fPIC',
+              // Using PIC for static libraries allows them to be linked into
+              // any executable, but it is not necessarily the best option in
+              // terms of overhead. We would have to know whether the target
+              // into which the static library is linked is PIC, PIE or neither.
+              // Then we could use the same option for the static library.
+              if (staticLibrary != null) '-fPIC',
+              if (executable != null) ...[
+                // Generate position-independent code for executables.
+                '-fPIE',
+                // Tell the linker to generate a position-independent
+                // executable.
+                '-pie',
+              ],
+            ] else ...[
+              // Disable generation of any kind of position-independent code.
+              '-fno-PIC',
+              '-fno-PIE',
+              // Tell the linker to generate a position-dependent executable.
+              if (executable != null) '-no-pie',
+            ],
+          ] else if (toolInstance.tool.isLdLike) ...[
+            if (pic!) ...[
+              if (executable != null) '--pie',
+            ] else ...[
+              if (executable != null) '--no-pie',
+            ],
+          ],
+        if (std != null) '-std=$std',
+        ?_clangSanitizers[codeConfig.sanitizer],
+        if (language == .cpp) ...[
+          '-x',
+          'c++',
+          // On Android with c++_static, use -Bstatic/-Bdynamic to force
+          // static resolution of -lc++. This picks up the NDK's libc++.a
+          // linker script which expands to INPUT(-lc++_static -lc++abi),
+          // ensuring libc++abi is also linked. Passing -l c++_static directly
+          // would miss libc++abi. See:
+          // https://android.googlesource.com/platform/ndk/+show/refs/heads/main/docs/BuildSystemMaintainers.md
+          if (codeConfig.targetOS == .android &&
+              (cppLinkStdLib ?? defaultCppLinkStdLib[codeConfig.targetOS]!) ==
+                  'c++_static') ...[
+            '-Wl,-Bstatic',
+            '-l',
+            'c++',
+            '-Wl,-Bdynamic',
+          ] else ...[
+            '-l',
+            cppLinkStdLib ?? defaultCppLinkStdLib[codeConfig.targetOS]!,
+          ],
+        ],
+        if (optimizationLevel != .unspecified) optimizationLevel.clangFlag(),
+        // Support Android 15 page size by default, can be overridden by
+        // passing [flags].
+        if (codeConfig.targetOS == .android) '-Wl,-z,max-page-size=16384',
+        if (codeConfig.targetOS == .iOS || codeConfig.targetOS == .macOS)
+          '-Wl,-encryptable',
+        ...flags,
+        for (final MapEntry(key: name, :value) in defines.entries)
+          if (value == null) '-D$name' else '-D$name=$value',
+        for (final include in includes) '-I${toolPath(include)}',
+        for (final forcedInclude in forcedIncludes)
+          '-include${toolPath(forcedInclude)}',
+        if (linkerOptions != null)
+          ...linkerOptions!.sourceFilesToFlags(
+            toolInstance.tool,
+            sourceFiles,
+            codeConfig.targetOS,
+            codeConfig.targetArchitecture,
+            fileSystem,
+          )
+        else
+          ...sourceFiles,
+        if (codeConfig.targetOS case .iOS || .macOS) ...[
+          for (final framework in frameworks) ...['-framework', framework],
+        ],
+        if (executable != null) ...[
+          '-o',
+          toolPath(outDir.resolveUri(executable!)),
+        ] else if (dynamicLibrary != null) ...[
+          '--shared',
+          '-o',
+          toolPath(outFile!),
+        ] else if (staticLibrary != null) ...[
+          '-c',
+          '-o',
+          toolPath(outFile!),
+        ],
+        if (executable != null || dynamicLibrary != null) ...[
+          if (codeConfig.targetOS case .android || .linux)
+            // During bundling code assets are all placed in the same directory.
+            // Setting this rpath allows the binary to find other code assets
+            // it is linked against.
+            '-Wl,-rpath,\$ORIGIN',
+          for (final directory in libraryDirectories)
+            '-L${toolPath(directory)}',
+          for (final library in libraries) '-l$library',
+        ],
+      ],
+      logger: logger,
+      processManager: processManager,
+      captureOutput: false,
+      throwOnUnexpectedExitCode: true,
+    );
+  }
+
+  Future<void> runCl({required ToolInstance tool}) async {
+    final environment = await _resolver.resolveEnvironment(tool);
+
+    final isStaticLib = staticLibrary != null;
+    ToolInstance? archiver_;
+    if (isStaticLib) {
+      archiver_ = await archiver();
+    }
+    final sourceFiles = sources.map((e) => e.toFilePath());
+
+    final result = await runProcess(
+      executable: tool.uri,
+      arguments: [
+        if (optimizationLevel != .unspecified) optimizationLevel.msvcFlag(),
+        if (std != null) '/std:$std',
+        if (codeConfig.sanitizer == Sanitizer.asan) '/Zi',
+        ?_msvcSanitizers[codeConfig.sanitizer],
+        if (language == .cpp) '/TP',
+        ...flags,
+        for (final MapEntry(key: name, :value) in defines.entries)
+          if (value == null) '/D$name' else '/D$name=$value',
+        for (final directory in includes) '/I${directory.toFilePath()}',
+        for (final forcedInclude in forcedIncludes)
+          '/FI${forcedInclude.toFilePath()}',
+        if (executable != null) ...[
+          '/Fe:${outDir.resolveUri(executable!).toFilePath()}',
+        ] else if (dynamicLibrary != null) ...[
+          '/LD',
+          '/Fe:${outDir.resolveUri(dynamicLibrary!).toFilePath()}',
+        ] else if (staticLibrary != null) ...[
+          '/c',
+        ],
+        if (linkerOptions != null)
+          ...linkerOptions!.sourceFilesToFlags(
+            tool.tool,
+            sourceFiles,
+            codeConfig.targetOS,
+            codeConfig.targetArchitecture,
+            fileSystem,
+          )
+        else ...[
+          ...sourceFiles,
+          '/link',
+        ],
+        '/MACHINE:${clTargetFlags[codeConfig.targetArchitecture]}',
+        if (executable != null || dynamicLibrary != null) ...[
+          for (final directory in libraryDirectories)
+            '/LIBPATH:${directory.toFilePath()}',
+          for (final library in libraries) '$library.lib',
+          if (codeConfig.sanitizer == Sanitizer.asan) '/DEBUG',
+        ],
+      ],
+      workingDirectory: outDir,
+      environment: environment,
+      logger: logger,
+      processManager: processManager,
+      captureOutput: false,
+      stdoutLogLevel: Level.INFO,
+      throwOnUnexpectedExitCode: true,
+    );
+
+    if (staticLibrary != null) {
+      // `cl.exe /c` writes one object file per source into the working
+      // directory ([outDir]), named after the source file with its extension
+      // replaced by `.obj`. Pass exactly those file names to the archiver
+      // instead of `*.obj`, so that object files left in [outDir] by other
+      // builds are not swept into this archive, and so that the archive
+      // member names stay independent of the build directory location.
+      final objectFiles = {
+        for (final source in sources) _objectFileName(source),
+      }.toList();
+      await runProcess(
+        executable: archiver_!.uri,
+        arguments: ['/out:${staticLibrary!.toFilePath()}', ...objectFiles],
+        workingDirectory: outDir,
+        environment: environment,
+        logger: logger,
+        processManager: processManager,
+        captureOutput: false,
+        stdoutLogLevel: Level.INFO,
+        throwOnUnexpectedExitCode: true,
+      );
+    }
+
+    assert(result.exitCode == 0);
+  }
+
+  /// The name of the object file `cl.exe /c` produces for [source]: the
+  /// source file name with its extension replaced by `.obj`.
+  static String _objectFileName(Uri source) {
+    final fileName = source.pathSegments.last;
+    final extensionIndex = fileName.lastIndexOf('.');
+    final baseName = extensionIndex > 0
+        ? fileName.substring(0, extensionIndex)
+        : fileName;
+    return '$baseName.obj';
+  }
+
+  static final androidNdkClangTargetFlags = {
+    Architecture.arm: 'armv7a-linux-androideabi',
+    Architecture.arm64: 'aarch64-linux-android',
+    Architecture.ia32: 'i686-linux-android',
+    Architecture.x64: 'x86_64-linux-android',
+    Architecture.riscv64: 'riscv64-linux-android',
+  };
+
+  static final appleClangMacosTargetFlags = {
+    Architecture.arm64: 'arm64-apple-darwin',
+    Architecture.arm64e: 'arm64e-apple-darwin',
+    Architecture.x64: 'x86_64-apple-darwin',
+  };
+
+  static final appleClangIosTargetFlags = {
+    Architecture.arm64: {
+      IOSSdk.iPhoneOS: 'arm64-apple-ios',
+      IOSSdk.iPhoneSimulator: 'arm64-apple-ios-simulator',
+    },
+    Architecture.arm64e: {
+      IOSSdk.iPhoneOS: 'arm64e-apple-ios',
+      IOSSdk.iPhoneSimulator: 'arm64e-apple-ios-simulator',
+    },
+    Architecture.x64: {IOSSdk.iPhoneSimulator: 'x86_64-apple-ios-simulator'},
+  };
+
+  static final clangLinuxTargetFlags = {
+    Architecture.arm: 'arm-linux-gnueabihf',
+    Architecture.arm64: 'aarch64-linux-gnu',
+    Architecture.ia32: 'i686-linux-gnu',
+    Architecture.x64: 'x86_64-linux-gnu',
+    Architecture.riscv32: 'riscv32-linux-gnu',
+    Architecture.riscv64: 'riscv64-linux-gnu',
+  };
+
+  static final clangWindowsTargetFlags = {
+    Architecture.arm64: 'arm64-pc-windows-msvc',
+    Architecture.ia32: 'i386-pc-windows-msvc',
+    Architecture.x64: 'x86_64-pc-windows-msvc',
+  };
+
+  static final clTargetFlags = {
+    Architecture.arm64: 'ARM64',
+    Architecture.ia32: 'X86',
+    Architecture.x64: 'X64',
+  };
+
+  static final defaultCppLinkStdLib = {
+    OS.android: 'c++_shared',
+    OS.fuchsia: 'c++',
+    OS.iOS: 'c++',
+    OS.linux: 'stdc++',
+    OS.macOS: 'c++',
+  };
+
+  static final _clangSanitizers = {
+    Sanitizer.asan: '-fsanitize=address',
+    Sanitizer.msan: '-fsanitize=memory',
+    Sanitizer.tsan: '-fsanitize=thread',
+  };
+
+  static final _msvcSanitizers = {
+    Sanitizer.asan: '/fsanitize=address',
+  };
+}

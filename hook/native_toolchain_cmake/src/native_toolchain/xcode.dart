@@ -1,0 +1,112 @@
+// Copyright (c) 2023, the Dart project authors.  Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
+import 'package:file/file.dart' show FileSystem;
+import 'package:logging/logging.dart';
+import 'package:process/process.dart';
+
+import '../tool/tool.dart';
+import '../tool/tool_instance.dart';
+import '../tool/tool_resolver.dart';
+import '../utils/run_process.dart';
+
+/// The xcrun from XCode.
+///
+/// https://developer.apple.com/xcode/
+final Tool xcrun = Tool(
+  name: 'xcrun',
+  defaultResolver: CliVersionResolver(
+    wrappedResolver: PathToolResolver(
+      toolName: 'xcrun',
+      executableName: 'xcrun',
+    ),
+  ),
+);
+
+/// The MacOSX SDK.
+final Tool macosxSdk = Tool(
+  name: 'MacOSX SDK',
+  defaultResolver: XCodeSdkResolver(),
+);
+
+/// The iPhoneOS SDK.
+final Tool iPhoneOSSdk = Tool(
+  name: 'iPhoneOS SDK',
+  defaultResolver: XCodeSdkResolver(),
+);
+
+/// The iPhoneSimulator SDK.
+final Tool iPhoneSimulatorSdk = Tool(
+  name: 'iPhoneSimulator SDK',
+  defaultResolver: XCodeSdkResolver(),
+);
+
+class XCodeSdkResolver implements ToolResolver {
+  @override
+  Future<List<ToolInstance>> resolve(ToolResolvingContext context) async {
+    final xcrunInstances = await xcrun.defaultResolver!.resolve(context);
+
+    return [
+      for (final xcrunInstance in xcrunInstances) ...[
+        ...await tryResolveSdk(
+          xcrunInstance: xcrunInstance,
+          sdk: 'macosx',
+          tool: macosxSdk,
+          logger: context.logger,
+          processManager: context.processManager,
+          fileSystem: context.fileSystem,
+        ),
+        ...await tryResolveSdk(
+          xcrunInstance: xcrunInstance,
+          sdk: 'iphoneos',
+          tool: iPhoneOSSdk,
+          logger: context.logger,
+          processManager: context.processManager,
+          fileSystem: context.fileSystem,
+        ),
+        ...await tryResolveSdk(
+          xcrunInstance: xcrunInstance,
+          sdk: 'iphonesimulator',
+          tool: iPhoneSimulatorSdk,
+          logger: context.logger,
+          processManager: context.processManager,
+          fileSystem: context.fileSystem,
+        ),
+      ],
+      // xcrun --sdk macosx --show-sdk-path)
+    ];
+  }
+
+  static Future<List<ToolInstance>> tryResolveSdk({
+    required ToolInstance xcrunInstance,
+    required String sdk,
+    required Tool tool,
+    required Logger? logger,
+    required ProcessManager processManager,
+    required FileSystem fileSystem,
+  }) async {
+    final result = await runProcess(
+      executable: xcrunInstance.uri,
+      arguments: ['--sdk', sdk, '--show-sdk-path'],
+      logger: logger,
+      processManager: processManager,
+    );
+    if (result.exitCode == 1) {
+      assert(result.stderr.contains('cannot be located'));
+      logger?.warning('SDK $sdk not installed.');
+      return [];
+    }
+    assert(result.exitCode == 0);
+    final uriSymbolic = Uri.directory(result.stdout.trim());
+    logger?.fine('Found $sdk at ${uriSymbolic.toFilePath()}');
+    final uri = Uri.directory(
+      await fileSystem.directory(uriSymbolic).resolveSymbolicLinks(),
+    );
+    if (uriSymbolic != uri) {
+      logger?.fine('Found $sdk at ${uri.toFilePath()}');
+    }
+    assert(await fileSystem.directory(uri).exists());
+    return [ToolInstance(tool: tool, uri: uri)];
+  }
+}

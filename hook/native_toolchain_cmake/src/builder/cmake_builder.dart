@@ -1,15 +1,16 @@
-import 'dart:io';
-
 import 'package:change_case/change_case.dart';
 import 'package:code_assets/code_assets.dart';
+import 'package:file/file.dart';
+import 'package:file/local.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/src/logger.dart';
+import 'package:process/process.dart';
 
 import 'build_mode.dart';
-import 'link_mode.dart';
+import 'linkmode.dart';
 import 'logger.dart';
 import 'tools.dart';
-import 'utils/run_process.dart';
+import '../utils/run_process.dart';
 
 final class CMakeBuilder implements Builder {
   final String name;
@@ -17,7 +18,7 @@ final class CMakeBuilder implements Builder {
   final String url;
   final String refspec;
   final String? subDir;
-  final Map<String, String?> defines;
+  final Map<String, String> variables;
   final BuildMode buildMode;
 
   CMakeBuilder({
@@ -26,7 +27,7 @@ final class CMakeBuilder implements Builder {
     required this.url,
     required this.refspec,
     this.subDir,
-    this.defines = const {},
+    this.variables = const {},
     this.buildMode = .release,
   });
 
@@ -35,8 +36,12 @@ final class CMakeBuilder implements Builder {
     required BuildInput input,
     required BuildOutputBuilder output,
     Logger? logger,
+    ProcessManager? processManager,
+    FileSystem? fileSystem,
   }) async {
     logger ??= createDefaultLogger();
+    processManager ??= const LocalProcessManager();
+    fileSystem ??= const LocalFileSystem();
     if (!input.config.buildCodeAssets) {
       logger.info(
         'config.buildAssetTypes did not contain CodeAssets, '
@@ -51,9 +56,9 @@ final class CMakeBuilder implements Builder {
     final srcDir = input.outputDirectoryShared.resolve('src/');
     final dstDir = input.outputDirectory.resolve('dst/');
     final outDir = input.outputDirectory.resolve('out/');
-    await Directory.fromUri(srcDir).create(recursive: true);
-    await Directory.fromUri(dstDir).create(recursive: true);
-    await Directory.fromUri(outDir).create(recursive: true);
+    await fileSystem.directory(srcDir).create(recursive: true);
+    await fileSystem.directory(dstDir).create(recursive: true);
+    await fileSystem.directory(outDir).create(recursive: true);
 
     // git init
     await runProcess(
@@ -61,6 +66,7 @@ final class CMakeBuilder implements Builder {
       arguments: ['init'],
       workingDirectory: srcDir,
       logger: logger,
+      processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
     // git remote
@@ -69,6 +75,7 @@ final class CMakeBuilder implements Builder {
       arguments: ['remote'],
       workingDirectory: srcDir,
       logger: logger,
+      processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
     if (result.stdout.trim().isEmpty) {
@@ -78,6 +85,7 @@ final class CMakeBuilder implements Builder {
         arguments: ['remote', 'add', 'origin', url],
         workingDirectory: srcDir,
         logger: logger,
+        processManager: processManager,
         throwOnUnexpectedExitCode: true,
       );
     } else {
@@ -87,6 +95,7 @@ final class CMakeBuilder implements Builder {
         arguments: ['remote', 'set-url', 'origin', url],
         workingDirectory: srcDir,
         logger: logger,
+        processManager: processManager,
         throwOnUnexpectedExitCode: true,
       );
     }
@@ -96,6 +105,7 @@ final class CMakeBuilder implements Builder {
       arguments: ['fetch', 'origin', refspec],
       workingDirectory: srcDir,
       logger: logger,
+      processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
     // git reset --hard <commit>
@@ -104,6 +114,7 @@ final class CMakeBuilder implements Builder {
       arguments: ['reset', '--hard', 'FETCH_HEAD'],
       workingDirectory: srcDir,
       logger: logger,
+      processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
     // cmake -S <src> -B <dst>
@@ -119,22 +130,28 @@ final class CMakeBuilder implements Builder {
         dstDir.toFilePath(),
         // '-DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON',
         // '-DCMAKE_BUILD_TYPE=Release',
-        ..._getTargetDefines(input.config.code),
-        ...defines.entries.map(
-          (e) => e.value == null ? '-D${e.key}' : '-D${e.key}=${e.value}',
-        ),
+        ...await _getTargetOsVariables(input.config.code),
+        ...variables.entries.map((e) => '-D${e.key}=${e.value}'),
       ],
       workingDirectory: srcDir,
       logger: logger,
+      processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
     // cmake --build <dst> --config <type>
     final buildMode = this.buildMode.name.toCapitalCase();
     await runProcess(
       executable: cmake.uri,
-      arguments: ['--build', dstDir.toFilePath(), '--config', buildMode],
+      arguments: [
+        '--build',
+        dstDir.toFilePath(),
+        '--config',
+        buildMode,
+        ..._getTargetOsOptions(input.config.code),
+      ],
       workingDirectory: srcDir,
       logger: logger,
+      processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
     // cmake --install <dst> --config <type> --prefix <out>
@@ -150,6 +167,7 @@ final class CMakeBuilder implements Builder {
       ],
       workingDirectory: srcDir,
       logger: logger,
+      processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
 
@@ -164,9 +182,11 @@ final class CMakeBuilder implements Builder {
     output.assets.code.add(libAsset);
   }
 
-  List<String> _getTargetDefines(
-    CodeConfig config,
-  ) => switch (config.targetOS) {
+  // https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html#cross-compiling
+  Future<List<String>> _getTargetOsVariables(
+    CodeConfig config, {
+    Logger? logger,
+  }) async => switch (config.targetOS) {
     .macOS => [
       '-DCMAKE_OSX_ARCHITECTURES=${config.targetArchitecture.toOsxArchitecture()}',
       '-DCMAKE_OSX_DEPLOYMENT_TARGET=${config.macOS.targetVersion}',
@@ -174,17 +194,24 @@ final class CMakeBuilder implements Builder {
     .iOS => [
       '-DCMAKE_SYSTEM_NAME=iOS',
       '-DCMAKE_OSX_ARCHITECTURES=${config.targetArchitecture.toOsxArchitecture()}',
-      '-DCMAKE_OSX_SYSROOT=${config.iOS.targetSdk.type}',
       '-DCMAKE_OSX_DEPLOYMENT_TARGET=${config.iOS.targetVersion}',
     ],
     .android => [
       '-DCMAKE_SYSTEM_NAME=Android',
-      '-DANDROID_ABI=${config.targetArchitecture.toAndroidAbi()}',
+      '-DCMAKE_SYSTEM_VERSION=${config.android.targetNdkApi}',
+      '-DCMAKE_ANDROID_ARCH_ABI=${config.targetArchitecture.toAndroidAbi()}',
+      '-DCMAKE_ANDROID_NDK=${await Tools.ndk.resolve(logger: logger).then((e) => e.uri.toFilePath())}',
     ],
     _ => [
       '-DCMAKE_SYSTEM_PROCESSOR=${config.targetArchitecture.toSystemProcessor()}',
     ],
   };
+
+  List<String> _getTargetOsOptions(CodeConfig config) =>
+      switch (config.targetOS) {
+        .iOS => ['--', '-sdk', config.iOS.targetSdk.type],
+        _ => [],
+      };
 }
 
 extension on Architecture {
