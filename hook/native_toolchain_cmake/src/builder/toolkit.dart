@@ -8,7 +8,7 @@ import '../tool/tool_error.dart';
 import '../tool/tool_instance.dart';
 import '../tool/tool_resolver.dart';
 
-abstract final class Tools {
+abstract final class Toolkit {
   static Tool get git => Tool(
     name: 'Git',
     defaultResolver: CliVersionResolver(

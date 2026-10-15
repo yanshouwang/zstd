@@ -10,7 +10,7 @@ import 'build_mode.dart';
 import 'compiler_resolver.dart';
 import 'linkmode.dart';
 import 'logger.dart';
-import 'tools.dart';
+import 'toolkit.dart';
 import '../utils/run_process.dart';
 
 final class CMakeBuilder implements Builder {
@@ -51,8 +51,8 @@ final class CMakeBuilder implements Builder {
       return;
     }
 
-    final git = await Tools.git.resolve(logger: logger);
-    final cmake = await Tools.cmake.resolve(logger: logger);
+    final git = await Toolkit.git.resolve(logger: logger);
+    final cmake = await Toolkit.cmake.resolve(logger: logger);
 
     final srcDir = input.outputDirectoryShared.resolve('src/');
     final dstDir = input.outputDirectory.resolve('dst/');
@@ -118,22 +118,18 @@ final class CMakeBuilder implements Builder {
       processManager: processManager,
       throwOnUnexpectedExitCode: true,
     );
-    // cmake -S <src> -B <dst>
+    // cmake -S<src> -B<dst> -D<variable>
     final subDir = this.subDir;
     final buildMode = this.buildMode.name.toCapitalCase();
     await runProcess(
       executable: cmake.uri,
       arguments: [
-        '-S',
-        subDir == null
-            ? srcDir.toFilePath()
-            : srcDir.resolve(subDir).toFilePath(),
-        '-B',
-        dstDir.toFilePath(),
-        ..._getTargetOsOptions(input.config.code.targetOS),
+        '-S${subDir == null ? srcDir.toFilePath() : srcDir.resolve(subDir).toFilePath()}',
+        '-B${dstDir.toFilePath()}',
+        ..._getOsOptions(codeConfig: input.config.code),
         '-DCMAKE_BUILD_TYPE=$buildMode',
         // '-DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON',
-        ...await _getTargetOsVariables(
+        ...await _getOsVariables(
           codeConfig: input.config.code,
           logger: logger,
           processManager: processManager,
@@ -184,21 +180,23 @@ final class CMakeBuilder implements Builder {
     output.assets.code.add(libAsset);
   }
 
-  List<String> _getTargetOsOptions(OS targetOS) => switch (targetOS) {
-    .iOS => ['-G', 'Xcode'],
-    _ => [],
-  };
+  List<String> _getOsOptions({required CodeConfig codeConfig}) =>
+      switch (codeConfig.targetOS) {
+        .android => ['-GNinja'],
+        .iOS => ['-GXcode'],
+        _ => [],
+      };
 
   // https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html#cross-compiling
   // https://developer.android.com/studio/projects/configure-cmake?hl=zh-cn#call-cmake-cli
   // https://developer.android.com/ndk/guides/cmake?hl=zh-cn#command-line
-  Future<List<String>> _getTargetOsVariables({
+  Future<List<String>> _getOsVariables({
     required CodeConfig codeConfig,
     Logger? logger,
     ProcessManager? processManager,
     FileSystem? fileSystem,
   }) async => switch (codeConfig.targetOS) {
-    .android => _getAndroidVariables(
+    .android => await _getAndroidVariables(
       codeConfig: codeConfig,
       logger: logger,
       processManager: processManager,
@@ -232,7 +230,7 @@ final class CMakeBuilder implements Builder {
     ProcessManager? processManager,
     FileSystem? fileSystem,
   }) async {
-    final ndk = await Tools.ndk.resolve(
+    final ndk = await Toolkit.ndk.resolve(
       logger: logger,
       processManager: processManager,
       fileSystem: fileSystem,
@@ -242,7 +240,7 @@ final class CMakeBuilder implements Builder {
       // '-DCMAKE_SYSTEM_VERSION=${config.android.targetNdkApi}',
       // '-DCMAKE_ANDROID_ARCH_ABI=${config.targetArchitecture.toAndroidAbi()}',
       // '-DCMAKE_ANDROID_NDK=${await Tools.ndk.resolve(logger: logger).then((e) => e.uri.toFilePath())}',
-      '-DCMAKE_TOOLCHAIN_FILE=${ndk.uri.resolve('/build/cmake/android.toolchain.cmake').toFilePath()}',
+      '-DCMAKE_TOOLCHAIN_FILE=${ndk.uri.resolve('build/cmake/android.toolchain.cmake').toFilePath()}',
       '-DANDROID_ABI=${codeConfig.targetArchitecture.toAndroidAbi()}',
       '-DANDROID_PLATFORM=android-${codeConfig.android.targetNdkApi}',
     ];
