@@ -1,4 +1,6 @@
+import 'package:file/file.dart';
 import 'package:logging/logging.dart';
+import 'package:process/process.dart';
 
 import '../native_toolchain/android_ndk.dart';
 import '../tool/tool.dart';
@@ -28,8 +30,16 @@ abstract final class Tools {
 }
 
 extension ToolExt on Tool {
-  Future<ToolInstance> resolve({required Logger? logger}) async {
-    final context = ToolResolvingContext(logger: logger);
+  Future<ToolInstance> resolve({
+    required Logger? logger,
+    ProcessManager? processManager,
+    FileSystem? fileSystem,
+  }) async {
+    final context = ToolResolvingContext(
+      logger: logger,
+      processManager: processManager,
+      fileSystem: fileSystem,
+    );
     final resolved = (await defaultResolver!.resolve(
       context,
     )).where((i) => i.tool == this).toList()..sort();
