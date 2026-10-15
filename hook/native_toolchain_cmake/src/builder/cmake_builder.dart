@@ -129,6 +129,7 @@ final class CMakeBuilder implements Builder {
             : srcDir.resolve(subDir).toFilePath(),
         '-B',
         dstDir.toFilePath(),
+        ..._getTargetOsOptions(input.config.code),
         // '-DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON',
         '-DCMAKE_BUILD_TYPE=$buildMode',
         ...await _getTargetOsVariables(input.config.code),
@@ -142,13 +143,7 @@ final class CMakeBuilder implements Builder {
     // cmake --build <dst> --config <type>
     await runProcess(
       executable: cmake.uri,
-      arguments: [
-        '--build',
-        dstDir.toFilePath(),
-        '--config',
-        buildMode,
-        ..._getTargetOsOptions(input.config.code),
-      ],
+      arguments: ['--build', dstDir.toFilePath(), '--config', buildMode],
       workingDirectory: srcDir,
       logger: logger,
       processManager: processManager,
@@ -183,6 +178,12 @@ final class CMakeBuilder implements Builder {
     output.assets.code.add(libAsset);
   }
 
+  List<String> _getTargetOsOptions(CodeConfig config) =>
+      switch (config.targetOS) {
+        .iOS => ['-G', 'Xcode'],
+        _ => [],
+      };
+
   // https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html#cross-compiling
   // https://developer.android.com/studio/projects/configure-cmake?hl=zh-cn#call-cmake-cli
   // https://developer.android.com/ndk/guides/cmake?hl=zh-cn#command-line
@@ -201,6 +202,7 @@ final class CMakeBuilder implements Builder {
     ],
     .iOS => [
       '-DCMAKE_SYSTEM_NAME=iOS',
+      '-DCMAKE_OSX_SYSROOT=${config.iOS.targetSdk.type}',
       '-DCMAKE_OSX_ARCHITECTURES=${config.targetArchitecture.toOsxArchitecture()}',
       '-DCMAKE_OSX_DEPLOYMENT_TARGET=${config.iOS.targetVersion}',
     ],
@@ -212,12 +214,6 @@ final class CMakeBuilder implements Builder {
       '-DCMAKE_SYSTEM_PROCESSOR=${config.targetArchitecture.toSystemProcessor()}',
     ],
   };
-
-  List<String> _getTargetOsOptions(CodeConfig config) =>
-      switch (config.targetOS) {
-        .iOS => ['--', '-sdk', config.iOS.targetSdk.type],
-        _ => [],
-      };
 }
 
 extension on OS {
