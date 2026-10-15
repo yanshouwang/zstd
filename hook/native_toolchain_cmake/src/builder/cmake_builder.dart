@@ -119,6 +119,7 @@ final class CMakeBuilder implements Builder {
     );
     // cmake -S <src> -B <dst>
     final subDir = this.subDir;
+    final buildMode = this.buildMode.name.toCapitalCase();
     await runProcess(
       executable: cmake.uri,
       arguments: [
@@ -129,7 +130,7 @@ final class CMakeBuilder implements Builder {
         '-B',
         dstDir.toFilePath(),
         // '-DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON',
-        // '-DCMAKE_BUILD_TYPE=Release',
+        '-DCMAKE_BUILD_TYPE=$buildMode',
         ...await _getTargetOsVariables(input.config.code),
         ...variables.entries.map((e) => '-D${e.key}=${e.value}'),
       ],
@@ -139,7 +140,6 @@ final class CMakeBuilder implements Builder {
       throwOnUnexpectedExitCode: true,
     );
     // cmake --build <dst> --config <type>
-    final buildMode = this.buildMode.name.toCapitalCase();
     await runProcess(
       executable: cmake.uri,
       arguments: [
@@ -184,24 +184,29 @@ final class CMakeBuilder implements Builder {
   }
 
   // https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html#cross-compiling
+  // https://developer.android.com/studio/projects/configure-cmake?hl=zh-cn#call-cmake-cli
+  // https://developer.android.com/ndk/guides/cmake?hl=zh-cn#command-line
   Future<List<String>> _getTargetOsVariables(
     CodeConfig config, {
     Logger? logger,
   }) async => switch (config.targetOS) {
-    .macOS => [
-      '-DCMAKE_OSX_ARCHITECTURES=${config.targetArchitecture.toOsxArchitecture()}',
-      '-DCMAKE_OSX_DEPLOYMENT_TARGET=${config.macOS.targetVersion}',
+    .android => [
+      // '-DCMAKE_SYSTEM_NAME=Android',
+      // '-DCMAKE_SYSTEM_VERSION=${config.android.targetNdkApi}',
+      // '-DCMAKE_ANDROID_ARCH_ABI=${config.targetArchitecture.toAndroidAbi()}',
+      // '-DCMAKE_ANDROID_NDK=${await Tools.ndk.resolve(logger: logger).then((e) => e.uri.toFilePath())}',
+      '-DCMAKE_TOOLCHAIN_FILE=${await Tools.ndk.resolve(logger: logger).then((e) => e.uri.toFilePath())}/build/cmake/android.toolchain.cmake',
+      '-DANDROID_ABI=${config.targetArchitecture.toAndroidAbi()}',
+      '-DANDROID_PLATFORM=android-${config.android.targetNdkApi}',
     ],
     .iOS => [
       '-DCMAKE_SYSTEM_NAME=iOS',
       '-DCMAKE_OSX_ARCHITECTURES=${config.targetArchitecture.toOsxArchitecture()}',
       '-DCMAKE_OSX_DEPLOYMENT_TARGET=${config.iOS.targetVersion}',
     ],
-    .android => [
-      '-DCMAKE_SYSTEM_NAME=Android',
-      '-DCMAKE_SYSTEM_VERSION=${config.android.targetNdkApi}',
-      '-DCMAKE_ANDROID_ARCH_ABI=${config.targetArchitecture.toAndroidAbi()}',
-      '-DCMAKE_ANDROID_NDK=${await Tools.ndk.resolve(logger: logger).then((e) => e.uri.toFilePath())}',
+    .macOS => [
+      '-DCMAKE_OSX_ARCHITECTURES=${config.targetArchitecture.toOsxArchitecture()}',
+      '-DCMAKE_OSX_DEPLOYMENT_TARGET=${config.macOS.targetVersion}',
     ],
     _ => [
       '-DCMAKE_SYSTEM_PROCESSOR=${config.targetArchitecture.toSystemProcessor()}',
@@ -219,8 +224,8 @@ extension on OS {
   String libraryDirectoryPath(LinkMode linkMode) => switch (this) {
     .android => 'lib',
     .iOS => 'lib',
-    .windows => linkMode is DynamicLoadingBundled ? 'bin' : 'lib',
     .macOS => 'lib',
+    .windows => linkMode is DynamicLoadingBundled ? 'bin' : 'lib',
     .linux => 'lib',
     _ => throw UnsupportedError('$this is not supported'),
   };
