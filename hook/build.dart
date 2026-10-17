@@ -6,8 +6,7 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     final name = input.packageName;
     final builder = CMakeBuilder(
-      // url: 'https://github.com/facebook/zstd.git',
-      url: 'git@github.com:facebook/zstd.git',
+      url: 'https://github.com/facebook/zstd.git',
       refspec: 'v1.5.7',
       subDir: 'build/cmake/',
       variables: {

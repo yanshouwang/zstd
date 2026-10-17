@@ -51,6 +51,10 @@ final class CMakeBuilder implements Builder {
       return;
     }
 
+    final url = input.userDefines.getValue('url', this.url);
+    final refspec = input.userDefines.getValue('refspec', this.refspec);
+    final subDir = input.userDefines.getValue('sub_dir', this.subDir);
+
     final git = await Toolkit.git.resolve(logger: logger);
     final cmake = await Toolkit.cmake.resolve(logger: logger);
 
@@ -119,7 +123,6 @@ final class CMakeBuilder implements Builder {
       throwOnUnexpectedExitCode: true,
     );
     // cmake -S<src> -B<dst> -D<variable>
-    final subDir = this.subDir;
     final buildMode = this.buildMode.name.toCapitalCase();
     await runProcess(
       executable: cmake.uri,
@@ -268,6 +271,13 @@ final class CMakeBuilder implements Builder {
       '-DCMAKE_C_COMPILER=${compiler.uri.toFilePath()}',
       '-DCMAKE_CXX_COMPILER=${compiler.uri.toCxxCompilerPath()}',
     ];
+  }
+}
+
+extension HookInputUserDefinesExt on HookInputUserDefines {
+  T getValue<T>(String key, T defaultValue) {
+    final value = this[key];
+    return value is T && value != null ? value : defaultValue;
   }
 }
 

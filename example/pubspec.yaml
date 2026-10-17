@@ -98,3 +98,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+hooks:
+  user_defines:
+    zstd:
+      # url: 'git@github.com:facebook/zstd.git'
+      url: 'https://gitee.com/yanshouwang/zstd.git'
